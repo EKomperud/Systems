@@ -1,0 +1,79 @@
+1. push rbx onto the stack (Callee save)
+2. allocate 28 to the stack pointer
+3. move the base SP into %rsi
+4. Call "read_six_numbers"
+   Regs:
+	%rdi = 6309904
+	%rsi = 140737488346784
+	%rdx = 2
+	%rcx = 2/3
+	%r8  = 140737354092547/8
+	%r9  = 0
+
+
+5. Don't explode if the value @ mem address @ %rsp is 0
+
+rbx = 4th input
+compare 4th and 5th input
+if equal, continue
+
+[0,1,1,2,3,5]
+
+rdi = input
+allocate 24 bytes
+Needs more than one integer input
+
+Phase 4:
+allocate 24 bytes
+Must have 2 inputs
+continue if first input is less than or equal to 14
+edx = 14
+esi = 0
+edi = first input (14)
+result of func4 must equal 31
+second input must equal 31
+
+Phase 5:
+Input must be 6 chars long
+eax = 0
+edx = 0
+
+rax must equal 6
+rdx must equal 45
+
+Phase 6: Linked List
+Allocate 80
+Must have 6 number inputs
+r13 & r14 = &(1st input)
+r12 = 0
+rbp = &(1st input)
+rax = 1 (1st input)
+rax -= 1
+rax must be <= 5 (1st input must be <= 6) or EXPLODE
+r12 += 1; if r12 = 6, jump to 98 (out of loop?)
+ebx = r12
+*  rax = ebx (which equals r12)
+Move some computation into %eax (The next input?)
+If this computation == 1st input, EXPLODE
+else, ebx += 1
+if ebx <= 5, jump to *. Once ebx > 5,
+   r13 += 4
+
+@ All inputs must be below 6
+@ No duplicate inputs
+
+$rax = 1st input (6)
+$exc = 7
+$edx = $ecx (7)
+$edx -= $rax (1st input) = 1
+$rax = $edx (1)
+&($rax) = 2nd input
+
+@ Inputs are reversed
+
+$esi = 0
+$ecx = Some Computation = 1 (last input, now first input?)
+if $ecx <= 1, jump to 146
+
+x/24wd ($rbx)
+x/24wx ($rbx)
