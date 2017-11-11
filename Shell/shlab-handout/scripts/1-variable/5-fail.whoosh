@@ -1,4 +1,4 @@
-# Make sure that exit status is not captured instead of output if the
+# Make sure that exit status is captured instead of output if the
 # process fails
 
 /bin/bash -c "echo ok; exit 0" => $output
