@@ -45,37 +45,97 @@ static void run_script(script *scr) {
 }
 
 static void run_group(script_group *group) {
+
   if (group->repeats == 1) {
-    if (group->num_commands == 1) {
-      run_command(&group->commands[0]);
-      return;
+    if (group->num_commands == 1) { 
+    	int pid;
+    	int child_status;
+    	int out_from_child[2];
+    	char out;
+    	int in_to_child[2];
+    	char in;
+    	script_command *command = &group->commands[0];
+    	out = command->output_to != NULL;
+    	in = command->input_from != NULL;
+      	if (out) {
+      		Pipe(out_from_child);
+      	} 
+      	if (in) {      		
+      		Pipe(in_to_child);      		
+  			write_var_to(in_to_child[1], command->input_from);
+  			Close(in_to_child[1]);
+  		}
+  		pid = Fork();
+  		if (pid == 0) {
+  			if (out) {
+  				Dup2(out_from_child[1], 1);
+  				Close(out_from_child[0]);
+  				Close(out_from_child[1]);
+  			}
+  			if (in) {
+  				Dup2(in_to_child[0], 0);
+  				Close(in_to_child[0]);
+  				Close(in_to_child[1]);
+  			}
+  			run_command(command);
+  		}
+  		else {
+  			if (command->pid_to != NULL) {
+  				set_var(command->pid_to, pid);
+  			}
+	      	Waitpid(pid,&child_status,0);		
+	    	child_status = WEXITSTATUS(child_status);
+	    	if (out) {
+      			Close(out_from_child[1]);
+	    		if (child_status == 0) {	    			
+	    			read_to_var(out_from_child[0], command->output_to);
+	    			Close(out_from_child[0]);			
+	    		}
+	    		else {
+	    			set_var(command->output_to, child_status);
+	    		}
+	    	}
+	    	if (in) {
+  				Close(in_to_child[0]);
+	    	}
+    	}
+      	return;
     }
     else {
-      int c;
-      int pid_2;
-      int child_status;
-      if (group->mode == 1) {
-
-      }
-      else {
-
-      }
-      for (c = 0; c < group->num_commands; c++) {
-        pid_2 = Fork();
-        if (pid_2 == 0) {
-          run_command(&group->commands[c]);
-	  	  exit(1);
-        }
-      }
-      if (pid_2 != 0) {
+      	int c;
+      	int child_status;
+      	int pids[group->num_commands];
+      	int pipes[group->num_commands][2];
+      	for (c = 0; c < group->num_commands; c++) {
+      		if (&group->commands[c].output_to != NULL) {
+      			Pipe(pipes[c]);
+      			Dup2(pipes[c][1], 1);
+      		}
+        	run_command(&group->commands[c]);
+        	pids[c] = *((int *)&group->commands[c].extra_data);
+      	}
 		for (c = 0; c < group->num_commands; c++) {
-	  	Waitpid(-1, &child_status, 0);
+	  		Waitpid(-1, &child_status, 0);
+	  		int c2;
+	  		for (c2 = 0; c2 < group->num_commands; c2++) {
+	  			if (child_status == pids[c2])
+	  				break;
+	  		}
+	  		child_status = WEXITSTATUS(child_status);
+	  		if (&group->commands[c2].output_to != NULL) {
+    			if (child_status == 0) {
+    				read_to_var(pipes[c2][0], &group->commands[c2].output_to);
+    			}
+    			else {
+    				set_var(&group->commands[c2].output_to, child_status);
+    			}
+    		}
 		}
-      }
     }
   }
   else {
     int r;
+    int fds[2];
     for (r = 0; r < group->repeats; r++) {
 		if (group->num_commands == 1) {
 	  		run_command(&group->commands[0]);
@@ -90,27 +150,9 @@ static void run_group(script_group *group) {
   }
 }
 
-/* This run_command function is a good start, but note that it runs
-   the command as a replacement for the `whoosh` script, instead of
-   creating a new process. */
-
 static void run_command(script_command *command) {
   const char **argv;
   int i;
-  int fds[2];
-  Pipe(fds);
-
-  if (command->pid_to != NULL) {
-    set_var(command->pid_to, getpid());
-  }
-  if (command->input_from != NULL) {
-    //int some_var;
-    //read_to_var(some_var, command->input_from);
-  } 
-  if (command->output_to != NULL) {
-  	// Must capture output from program and put in pipe
-  	// Then, use read_to_var to put pipe data into var
-  }
 
   argv = malloc(sizeof(char *) * (command->num_arguments + 2));
   argv[0] = command->program;
@@ -124,36 +166,12 @@ static void run_command(script_command *command) {
   
   argv[command->num_arguments + 1] = NULL;
 
-  int pid = Fork();
-
-  if (pid == 0) {
-  	if (command->output_to != NULL) {
-  		Dup2(fds[1], 1); //Redirect Standard Out (1) into the pipe:write-end(fds[1])
-  	}
-  	if (command->input_from != NULL) {
-  		write_var_to(fds[1], command->input_from);
-  		Close(fds[1]);
-  		Dup2(fds[0], 0); //Redirect Standard In (0) into the pipe:read-end(fds[0])
-  	}
+  //if (Fork() == 0)
   	Execve(argv[0], (char * const *)argv, environ);
-  }
-  else {
-  	int child_status;  	
-  	Close(fds[1]);
-    Waitpid(pid,&child_status,0);
-    child_status = WEXITSTATUS(child_status);
-    if (command->output_to != NULL) {
-    	if (child_status == 0) {
-    		read_to_var(fds[0], command->output_to);
-    	}
-    	else {
-    		set_var(command->output_to, child_status);
-    	}
-    }
-
+  //	command->extra_data = malloc(sizeof(int));
+  //	command->extra_data = pid;
   	free(argv);
   	return;
-  }
 }
 
 /* You'll likely want to use this set_var function for converting a
