@@ -40,6 +40,7 @@ static void run_script(script *scr) {
     int i;
     for (i = 0; i < scr->num_groups; i++) {
 		run_group(&scr->groups[i]);
+		//printf("debug\n");
     }
   }
 }
@@ -60,7 +61,7 @@ static void run_group(script_group *group) {
       	if (out) {
       		Pipe(out_from_child);
       	} 
-      	if (in) {      		
+      	if (in) {
       		Pipe(in_to_child);      		
   			write_var_to(in_to_child[1], command->input_from);
   			Close(in_to_child[1]);
@@ -75,7 +76,6 @@ static void run_group(script_group *group) {
   			if (in) {
   				Dup2(in_to_child[0], 0);
   				Close(in_to_child[0]);
-  				Close(in_to_child[1]);
   			}
   			run_command(command);
   		}
@@ -83,8 +83,16 @@ static void run_group(script_group *group) {
   			if (command->pid_to != NULL) {
   				set_var(command->pid_to, pid);
   			}
-	      	Waitpid(pid,&child_status,0);		
-	    	child_status = WEXITSTATUS(child_status);
+	      	Waitpid(pid,&child_status,0);
+	      	if (WIFEXITED(child_status)) {		
+	    		child_status = WEXITSTATUS(child_status);
+	    	}
+	    	if (WIFSIGNALED(child_status)) {
+	    		child_status = -WTERMSIG(child_status);
+	    	}
+	    	if (in) {
+  				Close(in_to_child[0]);
+	    	}
 	    	if (out) {
       			Close(out_from_child[1]);
 	    		if (child_status == 0) {	    			
@@ -95,57 +103,365 @@ static void run_group(script_group *group) {
 	    			set_var(command->output_to, child_status);
 	    		}
 	    	}
-	    	if (in) {
-  				Close(in_to_child[0]);
-	    	}
     	}
-      	return;
     }
-    else {
-      	int c;
-      	int child_status;
-      	int pids[group->num_commands];
-      	int pipes[group->num_commands][2];
-      	for (c = 0; c < group->num_commands; c++) {
-      		if (&group->commands[c].output_to != NULL) {
-      			Pipe(pipes[c]);
-      			Dup2(pipes[c][1], 1);
-      		}
-        	run_command(&group->commands[c]);
-        	pids[c] = *((int *)&group->commands[c].extra_data);
-      	}
-		for (c = 0; c < group->num_commands; c++) {
-	  		Waitpid(-1, &child_status, 0);
-	  		int c2;
-	  		for (c2 = 0; c2 < group->num_commands; c2++) {
-	  			if (child_status == pids[c2])
-	  				break;
+    else {    	
+    	int c;
+    	int pipes[group->num_commands * 2][2];
+    	int pids[group->num_commands];
+	    int out_from_child[2];
+	    int in_to_child[2];
+	    script_command *commands[group->num_commands];
+    	for (c = 0; c < group->num_commands; c++) {
+    		int pid;
+	    	int child_status;
+	    	char out;
+	    	char in;
+	    	script_command *command = &group->commands[c];
+	    	commands[c] = command;
+	    	out = command->output_to != NULL;
+	    	in = command->input_from != NULL;
+	      	if (out) {
+	      		Pipe(out_from_child);
+	      		pipes[(c * 2)][0] = out_from_child[0];
+	      		pipes[(c * 2)][1] = out_from_child[1];
+	      	} 
+	      	else {
+	      		pipes[(c * 2)][0] = -1;
+	      		pipes[(c * 2)][1] = -1;
+	      	}
+	      	if (in) {
+	      		Pipe(in_to_child);
+	  			write_var_to(in_to_child[1], command->input_from);
+	      		pipes[(c * 2) + 1][0] = in_to_child[0];
+	      		pipes[(c * 2) + 1][1] = in_to_child[1];
+	      		Close(pipes[(c * 2) + 1][1]);
 	  		}
-	  		child_status = WEXITSTATUS(child_status);
-	  		if (&group->commands[c2].output_to != NULL) {
-    			if (child_status == 0) {
-    				read_to_var(pipes[c2][0], &group->commands[c2].output_to);
+	  		else {
+	  			pipes[(c * 2) + 1][0] = -1;
+	  			pipes[(c * 2) + 1][1] = -1;
+	  		}
+	  		pid = Fork();
+	  		if (pid == 0) {
+	  			if (out) {	  			  					
+	  				//Dup2(pipes[(c * 2)][1], 1);
+	  				//printf("debug\n");
+	  				Dup2(out_from_child[1],1);
+	  				Close(pipes[(c * 2)][0]);
+	  				Close(pipes[(c * 2)][1]);
+	  			}
+	  			if (in) {
+	  				Dup2(pipes[(c*2)+1][0], 0);
+	  				Close(pipes[(c*2)+1][0]);
+	  			}
+	  			//printf("debug\n");
+	  			//kill(getpid(), SIGSTOP);
+	  			run_command(command);
+	  		}
+	  		else {
+	  			pids[c] = pid;
+	  			if (command->pid_to != NULL) {
+  					set_var(command->pid_to, pid);
+  				}
+	  		}
+    	}
+    	//handle them
+    	//int p;
+    	//for (p = 0; p < group->num_commands; p++) {
+    	//	kill(pids[p], SIGCONT);
+    	//}
+
+
+    	if (group->mode == 1) { // AND
+    		int child_status;
+    		int child_pid;
+    		for (c = 0; c < group->num_commands; c++) {
+    			child_pid = Waitpid(-1,&child_status,0);
+    			int c2;
+    			for (c2 = 0; c2 < group->num_commands; c2++) {
+    				if (pids[c2] == child_pid)
+    					break;
+    			}
+    			if (WIFEXITED(child_status)) {		
+	    			child_status = WEXITSTATUS(child_status);
+	    		}
+	    		if (WIFSIGNALED(child_status)) {
+	    			child_status = -WTERMSIG(child_status);
+	    		}
+	    		if (pipes[(c2 * 2) + 1][0] != -1) {
+	    			Close(pipes[(c2 * 2) + 1][0]);
+	    		}	    		
+	    		if (pipes[(c2 * 2)][0] != -1) {	    			
+	    			Close(pipes[(c2 * 2)][1]);	    			
+	    			if (child_status == 0) {  				
+	    				read_to_var(pipes[(c2 * 2)][0], commands[c2]->output_to);
+	    				Close(pipes[(c2 * 2)][0]);
+	    			}
+	    			else {
+	    				set_var(commands[c2]->output_to, child_status);
+	    			}
+	    		}
+    		}
+    	}
+    	else if (group->mode == 2) { // OR    		
+    		int child_status;
+    		int child_pid;
+    		child_pid = Waitpid(-1, &child_status, 0);    		
+    		int c2;
+    		int c3;
+    		for (c2 = 0; c2 < group->num_commands; c2++) {
+    			//printf("%d == %d from %d\n",pids[c2],child_pid,getpid() );
+
+    			if (pids[c2] == child_pid) {
+    				c3 = c2;
     			}
     			else {
-    				set_var(&group->commands[c2].output_to, child_status);
+    				//printf("%d\n", pipes[(c2 * 2) + 1][0]);
+    				kill(pids[c2], 15);
+    				kill(pids[c2], 18);
+    				Waitpid(pids[c2], NULL, 0);
+    				if (pipes[(c2 * 2) + 1][0] != -1) {
+	    				Close(pipes[(c2 * 2) + 1][0]);
+	    				//Close(pipes[(c2 * 2) + 1][1]); // THIS GUY!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+	    				//Close(pipes[(c2 * 2) + 1][1]);
+	    			}
+	    			if (pipes[(c2 * 2)][0] != -1) {	    			
+	    				Close(pipes[(c2 * 2)][1]);
+	    				Close(pipes[(c2 * 2)][0]);    			
+	    				//if (child_status == 0) {  				
+	    				//	read_to_var(pipes[(c2 * 2)][0], commands[c2]->output_to);
+	    				//	Close(pipes[(c2 * 2)][0]);
+	    				//}
+	    				//else {
+	    				//	set_var(commands[c2]->output_to, child_status);
+	    				//}
+	    			}
     			}
     		}
-		}
+    		if (WIFEXITED(child_status)) {
+    			child_status = WEXITSTATUS(child_status);
+    		}
+    		if (WIFSIGNALED(child_status)) {
+    			child_status = -WTERMSIG(child_status);
+    		}
+    		if (pipes[(c3 * 2) + 1][0] != -1) {
+	    			Close(pipes[(c2 * 2) + 1][0]);
+	    	}	    		
+	    	if (pipes[(c3 * 2)][0] != -1) {	    			
+	    		Close(pipes[(c3 * 2)][1]);	    			
+	    		if (child_status == 0) {  				
+	    			read_to_var(pipes[(c3 * 2)][0], commands[c3]->output_to);
+	    			Close(pipes[(c3 * 2)][0]);
+	    		}
+	    		else {
+	    			set_var(commands[c3]->output_to, child_status);
+	    		}
+	    	}
+    	}
     }
   }
   else {
     int r;
-    int fds[2];
     for (r = 0; r < group->repeats; r++) {
 		if (group->num_commands == 1) {
-	  		run_command(&group->commands[0]);
+	  		int pid;
+    		int child_status;
+    		int out_from_child[2];
+    		char out;
+    		int in_to_child[2];
+    		char in;
+    		script_command *command = &group->commands[0];
+    		out = command->output_to != NULL;
+    		in = command->input_from != NULL;
+      		if (out) {
+	      		Pipe(out_from_child);
+    	  	} 
+      		if (in) {      		
+      			Pipe(in_to_child);      		
+  				write_var_to(in_to_child[1], command->input_from);
+  				Close(in_to_child[1]);
+  			}
+  			pid = Fork();
+  			if (pid == 0) {
+  				if (out) {
+  					Dup2(out_from_child[1], 1);
+  					Close(out_from_child[0]);
+  					Close(out_from_child[1]);
+  				}
+  				if (in) {
+	  				Dup2(in_to_child[0], 0);
+  					Close(in_to_child[0]);
+  				}
+  				run_command(command);
+  			}
+  			else {
+	  			if (command->pid_to != NULL) {
+  					set_var(command->pid_to, pid);
+  				}
+		      	Waitpid(pid,&child_status,0);		
+		    	if (WIFEXITED(child_status)) {		
+	    		child_status = WEXITSTATUS(child_status);
+	    		}
+	    		if (WIFSIGNALED(child_status)) {
+		    		child_status = -WTERMSIG(child_status);
+		    	}
+		    	if (out) {
+	      			Close(out_from_child[1]);
+		    		if (child_status == 0) {	    			
+		    			read_to_var(out_from_child[0], command->output_to);
+		    			Close(out_from_child[0]);			
+		    		}
+		    		else {
+		    			set_var(command->output_to, child_status);
+		    		}
+		    	}
+		    	if (in) {
+	  				Close(in_to_child[0]);
+		    	}
+	    	}
 		}
-	  	else {
-	  		int c;
-	  		for (c = 0; c < group->num_commands; c++) {
-	      		run_command(&group->commands[c]);
+    else {
+    	int c;
+    	int pipes[group->num_commands * 2][2];
+    	int pids[group->num_commands];
+	    int out_from_child[2];
+	    int in_to_child[2];
+	    script_command *commands[group->num_commands];
+    	for (c = 0; c < group->num_commands; c++) {
+    		int pid;
+	    	int child_status;
+	    	char out;
+	    	char in;
+	    	script_command *command = &group->commands[c];
+	    	commands[c] = command;
+	    	out = command->output_to != NULL;
+	    	in = command->input_from != NULL;
+	      	if (out) {
+	      		Pipe(out_from_child);
+	      		pipes[(c * 2)][0] = out_from_child[0];
+	      		pipes[(c * 2)][1] = out_from_child[1];
+	      	} 
+	      	else {
+	      		pipes[(c * 2)][0] = -1;
+	      		pipes[(c * 2)][1] = -1;
+	      	}
+	      	if (in) {
+	      		Pipe(in_to_child);
+	  			write_var_to(in_to_child[1], command->input_from);
+	      		pipes[(c * 2) + 1][0] = in_to_child[0];
+	      		pipes[(c * 2) + 1][1] = in_to_child[1];
+	      		Close(pipes[(c * 2) + 1][1]);
 	  		}
-	  	}
+	  		else {
+	  			pipes[(c * 2) + 1][0] = -1;
+	  			pipes[(c * 2) + 1][1] = -1;
+	  		}
+	  		pid = Fork();
+	  		if (pid == 0) {
+	  			if (out) {	  			  					
+	  				//Dup2(pipes[(c * 2)][1], 1);
+	  				//printf("debug\n");
+	  				Dup2(out_from_child[1],1);
+	  				Close(pipes[(c * 2)][0]);
+	  				Close(pipes[(c * 2)][1]);
+	  			}
+	  			if (in) {
+	  				Dup2(pipes[(c*2)+1][0], 0);
+	  				Close(pipes[(c*2)+1][0]);
+	  			}
+	  			run_command(command);
+	  		}
+	  		else {
+	  			pids[c] = pid;
+	  			if (command->pid_to != NULL) {
+  					set_var(command->pid_to, pid);
+  				}
+	  		}
+    	}
+    	//handle them
+    	if (group->mode == 1) { // AND
+    		int child_status;
+    		int child_pid;
+    		for (c = 0; c < group->num_commands; c++) {
+    			child_pid = Waitpid(-1,&child_status,0);
+    			int c2;
+    			for (c2 = 0; c2 < group->num_commands; c2++) {
+    				if (pids[c2] == child_pid)
+    					break;
+    			}
+    			if (WIFEXITED(child_status)) {		
+	    			child_status = WEXITSTATUS(child_status);
+	    		}
+	    		if (WIFSIGNALED(child_status)) {
+	    			child_status = -WTERMSIG(child_status);
+	    		}
+	    		if (pipes[(c2 * 2) + 1][0] != -1) {
+	    			Close(pipes[(c2 * 2) + 1][0]);
+	    		}	    		
+	    		if (pipes[(c2 * 2)][0] != -1) {	    			
+	    			Close(pipes[(c2 * 2)][1]);	    			
+	    			if (child_status == 0) {  				
+	    				read_to_var(pipes[(c2 * 2)][0], commands[c2]->output_to);
+	    				Close(pipes[(c2 * 2)][0]);
+	    			}
+	    			else {
+	    				set_var(commands[c2]->output_to, child_status);
+	    			}
+	    		}
+    		}
+    	}
+    	else if (group->mode == 2) { // OR
+    		int child_status;
+    		int child_pid;
+    		child_pid = Waitpid(-1, &child_status, 0);
+    		int c2;
+    		int c3;
+    		for (c2 = 0; c2 < group->num_commands; c2++) {
+    			if (pids[c2] == child_pid) {
+    				c3 = c2;
+    			}
+    			else {
+    				kill(pids[c2], 15);
+    				kill(pids[c2], 18);
+    				Waitpid(pids[c2], NULL, 0);
+    				if (pipes[(c2 * 2) + 1][0] != -1) {
+	    				Close(pipes[(c2 * 2) + 1][0]);
+	    				//Close(pipes[(c2 * 2) + 1][1]); // THIS GUY!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+	    			}
+	    			if (pipes[(c2 * 2)][0] != -1) {	    			
+	    				Close(pipes[(c2 * 2)][1]);	
+	    				Close(pipes[(c2 * 2)][0]);    			
+	    				//if (child_status == 0) {  				
+	    				//	read_to_var(pipes[(c2 * 2)][0], commands[c2]->output_to);
+	    				//	Close(pipes[(c2 * 2)][0]);
+	    				//}
+	    				//else {
+	    				//	set_var(commands[c2]->output_to, child_status);
+	    				//}
+	    			}
+    			}
+    		}
+    		if (WIFEXITED(child_status)) {
+    			child_status = WEXITSTATUS(child_status);
+    		}
+    		if (WIFSIGNALED(child_status)) {
+    			child_status = -WTERMSIG(child_status);
+    		}
+    		if (pipes[(c3 * 2) + 1][0] != -1) {
+	    			Close(pipes[(c2 * 2) + 1][0]);
+	    	}	    		
+	    	if (pipes[(c3 * 2)][0] != -1) {	    			
+	    		Close(pipes[(c3 * 2)][1]);	    			
+	    		if (child_status == 0) {  				
+	    			read_to_var(pipes[(c3 * 2)][0], commands[c3]->output_to);
+	    			Close(pipes[(c3 * 2)][0]);
+	    		}
+	    		else {
+	    			set_var(commands[c3]->output_to, child_status);
+	    		}
+	    	}
+    	}
+    }
 	}
   }
 }
@@ -167,6 +483,8 @@ static void run_command(script_command *command) {
   argv[command->num_arguments + 1] = NULL;
 
   //if (Fork() == 0)
+    //printf("%s\n", argv[1]);
+
   	Execve(argv[0], (char * const *)argv, environ);
   //	command->extra_data = malloc(sizeof(int));
   //	command->extra_data = pid;
