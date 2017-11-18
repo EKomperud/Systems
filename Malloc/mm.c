@@ -30,20 +30,38 @@
 #define PAGE_ALIGN(size) (((size) + (mem_pagesize()-1)) & ~(mem_pagesize()-1))
 
 /* the size of additional blocks of memory that must be allocated with each payload */
-#define OVERHEAD sizeof(block_header);
+#define OVERHEAD sizeof(block_header) + sizeof(block_footer);
 
 /* get the header from a payload pointer */
 #define HDRP(pp) ((char *)(pp) - sizeof(block_header))
 
+/* get the footer from a payload pointer */
+#define FTRP(pp) ((char *)(bp)+GET_SIZE(HDRP(bp))-OVERHEAD)
+
+/* get a size_t value from a block header/footer pointer */
+#define GET(pp) (*(size_t *) (pp))
+
 /* get the size of a block */
-#define GET_SIZE(p) ((block_header *)(p))->size
+#define GET_SIZE(p) (GET(p) & ~0xF)
 
 /* get the allocation status of a block */
-#define GET_ALLOC(p) ((block_header *)(p))->allocated
+#define GET_ALLOC(p) (GET(p) & 0x1)
+
+/* install a value to a block pointer's size_t value */
+#define PUT(p, val) (*(size_t *) (p) = (val))
+
+/* pack a size value and allocation value into one size_t value */
+#define PACK(size, alloc) ((size) | (alloc))
 
 /* get the next block's payload (pointer) */
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp)))
 
+/* get the previous block's payload (pointer) */
+#define PREV_BLKP(bp) ((char *)(bp)-GET_SIZE((char *)(bp)-OVERHEAD))
+
+static void mm_coalesce(void *pp);
+
+void *free_list = NULL;
 void *current_avail = NULL;
 int current_avail_size = 0;
 
@@ -54,6 +72,8 @@ int mm_init(void)
 {
   current_avail = NULL;
   current_avail_size = 0;
+  
+  mm_malloc(0);
   
   return 0;
 }
@@ -78,6 +98,9 @@ void *mm_malloc(size_t size)
   current_avail += newsize;
   current_avail_size -= newsize;
   
+  //TODO: Make sure payload pointer is 16-byte aligned
+  //TODO: Avoiding footers in allocated blocks
+  
   return p;
 }
 
@@ -86,6 +109,47 @@ void *mm_malloc(size_t size)
  */
 void mm_free(void *ptr)
 {
+}
+
+/*
+ * coalesce - If a block-to-be-freed neighbors free blocks, coalesce them.
+  */
+static void mm_coalesce(void *pp)
+{
+	size_t prev_alloc = GET_ALLOC(HDRP(PREV_BLKP(pp)));
+	size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(pp)));
+	size_t size = GET_SIZE(HDRP(pp));
+	
+	if (prev_alloc && next_alloc)
+	{
+		// do nothing
+	}
+	else if (prev_alloc && !next_alloc)
+	{
+		size += GET_SIZE(HDRP(NEXT_BLKP(pp)));
+		//GET_SIZE(HDRP(pp)) = size;
+		PUT(HDRP(pp), PACK(size,prev_alloc));
+		//GET_SIZE(FTRP(pp)) = size;
+		PUT(FTRP(pp), size);
+	}
+	else if (!prev_alloc && next_alloc)
+	{
+		size += GET_SIZE(HDRP(PREV_BLKP(pp)));
+		//GET_SIZE(FTRP(pp)) = size;
+		PUT(FTRP(pp), size);
+		//GET_SIZE(HDRP(PREV_BLKP(pp))) = size;
+		PUT(HDRP(PREV_BLKP(pp)), PACK(size,prev_alloc));
+		pp = PREV_BLKP(pp);
+	}
+	else if (!prev_alloc && !next_alloc)
+	{
+		size += (GET_SIZE(HDRP(NEXT_BLKP(pp))) + GET_SIZE(HDRP(PREV_BLKP(pp))));
+		//GET_SIZE(FTRP(NEXT_BLKP(pp))) = size;
+		PUT(FTRP(NEXT_BLKP(pp)), size);
+		//GET_SIZE(HDRP(PREV_BLKP(pp))) = size;
+		PUT(HDRP(PREV_BLKP(pp)), PACK(size, prev_alloc));
+		pp = PREV_BLKP(pp);
+	}
 }
 
 /*
