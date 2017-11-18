@@ -30,13 +30,13 @@
 #define PAGE_ALIGN(size) (((size) + (mem_pagesize()-1)) & ~(mem_pagesize()-1))
 
 /* the size of additional blocks of memory that must be allocated with each payload */
-#define OVERHEAD sizeof(block_header) + sizeof(block_footer);
+#define OVERHEAD (sizeof(block_header) + sizeof(block_footer))
 
 /* get the header from a payload pointer */
 #define HDRP(pp) ((char *)(pp) - sizeof(block_header))
 
 /* get the footer from a payload pointer */
-#define FTRP(pp) ((char *)(bp)+GET_SIZE(HDRP(bp))-OVERHEAD)
+#define FTRP(pp) ((char *)(pp)+GET_SIZE(HDRP(pp))-OVERHEAD)
 
 /* get a size_t value from a block header/footer pointer */
 #define GET(pp) (*(size_t *) (pp))
@@ -70,10 +70,11 @@ int current_avail_size = 0;
  */
 int mm_init(void)
 {
-  current_avail = NULL;
-  current_avail_size = 0;
-  
+  current_avail = mem_map(mem_pagesize());
+  current_avail_size = mem_pagesize();
+
   mm_malloc(0);
+  PUT(current_avail + current_avail_size - sizeof(block_footer), PACK(ALIGNMENT, 0x1));
   
   return 0;
 }
@@ -84,8 +85,10 @@ int mm_init(void)
  */
 void *mm_malloc(size_t size)
 {
-  int newsize = ALIGN(size);
+  int newsize = ALIGN(size) + OVERHEAD;
   void *p;
+  if (size == 0)
+    return NULL;
   
   if (current_avail_size < newsize) {
     current_avail_size = PAGE_ALIGN(newsize);
@@ -94,9 +97,18 @@ void *mm_malloc(size_t size)
       return NULL;
   }
 
-  p = current_avail;
-  current_avail += newsize;
-  current_avail_size -= newsize;
+  // Create & encode the header and footer
+  block_header *header;
+  header->size = PACK(newsize, 0x1);
+  block_footer *footer;
+  footer->size = newsize;
+
+  current_avail = header;                   // Set the current pointer to header
+  p = current_avail + sizeof(block_header); // Set the payload pointer
+  //FTRP(p) = footer;                         // Set the footer pointer memory to footer
+  PUT(FTRP(p), newsize);
+  current_avail += newsize;                 // Set the new current_avail pointer position
+  current_avail_size -= newsize;            // Reduce usable size by newsize
   
   //TODO: Make sure payload pointer is 16-byte aligned
   //TODO: Avoiding footers in allocated blocks
@@ -109,6 +121,8 @@ void *mm_malloc(size_t size)
  */
 void mm_free(void *ptr)
 {
+  PUT(HDRP(ptr), GET_SIZE(ptr));
+  mm_coalesce(ptr);
 }
 
 /*
@@ -138,7 +152,7 @@ static void mm_coalesce(void *pp)
 		//GET_SIZE(FTRP(pp)) = size;
 		PUT(FTRP(pp), size);
 		//GET_SIZE(HDRP(PREV_BLKP(pp))) = size;
-		PUT(HDRP(PREV_BLKP(pp)), PACK(size,prev_alloc));
+		PUT(HDRP(PREV_BLKP(pp)), PACK(size, prev_alloc));
 		pp = PREV_BLKP(pp);
 	}
 	else if (!prev_alloc && !next_alloc)
