@@ -42,10 +42,12 @@
 #define GET(pp) (*(size_t *) (pp))
 
 /* get the size of a block */
-#define GET_SIZE(p) (GET(p) & ~0xF)
+//#define GET_SIZE(p) (GET(p) & ~0xF)
+#define GET_SIZE(p) ((block_header *)(p))->size
 
 /* get the allocation status of a block */
-#define GET_ALLOC(p) (GET(p) & 0x1)
+//#define GET_ALLOC(p) (GET(p) & 0x1)
+#define GET_ALLOC(p) ((block_header *)(p))->allocated
 
 /* install a value to a block pointer's size_t value */
 #define PUT(p, val) (*(size_t *) (p) = (val))
@@ -59,9 +61,22 @@
 /* get the previous block's payload (pointer) */
 #define PREV_BLKP(bp) ((char *)(bp)-GET_SIZE((char *)(bp)-OVERHEAD))
 
+/* get the next value of a free list node */
+#define GET_NEXT_FREE_POINTER(p) ((list_node *)(p))->next
+
+#define GET_NEXT_FREE_VALUE(p) *(((list_node *)(p))->next)
+
+/* get the prev value of a free list node */
+#define GET_PREV_FREE_POINTER(p) ((list_node *)(p))->prev
+
+#define GET_PREV_FREE_VALUE(p) *(((list_node *)(p))->prev)
+
+/* get the max of two values */
+#define MAX(a,b) (((a)>(b))?(a):(b))
+
 static void mm_coalesce(void *pp);
 
-void *free_list = NULL;
+list_node *free_list = NULL;
 void *current_avail = NULL;
 int current_avail_size = 0;
 
@@ -75,6 +90,7 @@ int mm_init(void)
 
   mm_malloc(0);
   PUT(current_avail + current_avail_size - sizeof(block_footer), PACK(ALIGNMENT, 0x1));
+  free_list = current_avail + (3 * ALIGNMENT);
   
   return 0;
 }
@@ -85,30 +101,41 @@ int mm_init(void)
  */
 void *mm_malloc(size_t size)
 {
-  int newsize = ALIGN(size) + OVERHEAD;
+  int needSize = MAX(size, sizeof(list_node));
+  int newsize = ALIGN(needSize + OVERHEAD);
+  size_t bestFit = -1;
   void *p;
-  if (size == 0)
-    return NULL;
-  
-  if (current_avail_size < newsize) {
-    current_avail_size = PAGE_ALIGN(newsize);
-    current_avail = mem_map(current_avail_size);
-    if (current_avail == NULL)
-      return NULL;
+
+  char foundFit = 0;
+  list_node *bestNode = free_list;
+  list_node *iterator = free_list;
+  while (iterator->next != NULL)
+  {
+    size_t thisSize = GET_SIZE(HDRP(iterator));
+    if (thisSize >= newsize && thisSize < bestFit)
+    {
+      bestFit = thisSize;
+      bestNode = iterator;
+      foundFit = 1;
+    }
+    iterator = iterator->next;
   }
 
-  // Create & encode the header and footer
-  block_header *header;
-  header->size = PACK(newsize, 0x1);
-  block_footer *footer;
-  footer->size = newsize;
+  if (!foundFit)
+  {
+    //TODO: map new memory and link it to old memory
+  }
 
-  current_avail = header;                   // Set the current pointer to header
-  p = current_avail + sizeof(block_header); // Set the payload pointer
-  //FTRP(p) = footer;                         // Set the footer pointer memory to footer
-  PUT(FTRP(p), newsize);
-  current_avail += newsize;                 // Set the new current_avail pointer position
-  current_avail_size -= newsize;            // Reduce usable size by newsize
+  GET_SIZE(bestNode) = newsize;                        // Set header information
+  GET_ALLOC(bestNode) = 0x1;
+  //PUT((block_header *)current_avail, PACK(newsize, 0x1));   
+  p = bestNode + sizeof(block_header);                 // Set the payload pointer
+  GET_SIZE(FTRP(p)) = newsize;                              // Set the footer pointer memory to footer
+  //PUT(FTRP(p), newsize);                                    
+
+  PUT((block_header *)current_avail, current_avail_size);   // Set the header of the unallocated memory
+  free_list = current_avail + sizeof(block_header);
+  
   
   //TODO: Make sure payload pointer is 16-byte aligned
   //TODO: Avoiding footers in allocated blocks
@@ -121,7 +148,8 @@ void *mm_malloc(size_t size)
  */
 void mm_free(void *ptr)
 {
-  PUT(HDRP(ptr), GET_SIZE(ptr));
+  //PUT(HDRP(ptr), GET_SIZE(ptr));
+  GET_ALLOC(HDRP(ptr)) = 0x1;
   mm_coalesce(ptr);
 }
 
@@ -133,35 +161,77 @@ static void mm_coalesce(void *pp)
 	size_t prev_alloc = GET_ALLOC(HDRP(PREV_BLKP(pp)));
 	size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(pp)));
 	size_t size = GET_SIZE(HDRP(pp));
-	
+
 	if (prev_alloc && next_alloc)
 	{
-		// do nothing
+    // DO NOT coalesce with neighboring blocks
+
+		// DO update the free list
+    list_node *free_node = (list_node *)pp;
+    // install pointer from you, to the current head of the free list
+    free_node->next = free_list;
+    free_list->prev = free_node;
+
+    // update free list pointer to point to you
+    free_list = free_node;
 	}
 	else if (prev_alloc && !next_alloc)
 	{
+    // DO coalesce with the forward neighbor
 		size += GET_SIZE(HDRP(NEXT_BLKP(pp)));
-		//GET_SIZE(HDRP(pp)) = size;
-		PUT(HDRP(pp), PACK(size,prev_alloc));
-		//GET_SIZE(FTRP(pp)) = size;
-		PUT(FTRP(pp), size);
+		GET_SIZE(HDRP(pp)) = size;
+		//PUT(HDRP(pp), PACK(size,prev_alloc));
+		GET_SIZE(FTRP(pp)) = size;
+		//PUT(FTRP(pp), size);
+
+    // DO replace the forward neighbor in the free list
+    list_node *free_node = (list_node *)pp;
+    list_node *forward_neighbor = (list_node *)NEXT_BLKP(pp);
+
+    if (forward_neighbor->prev == NULL && forward_neighbor->next != NULL)           // forward neighbor is the start of free list
+    {
+      free_node->next = forward_neighbor->next;
+      free_node->next->prev = free_node;
+
+      free_node->prev = NULL;
+      free_list = free_node;
+    }
+    else if (forward_neighbor->prev != NULL && forward_neighbor->next != NULL)      // forward neighbor is in the middle of free list
+    {
+      free_node->next = forward_neighbor->next;
+      free_node->next->prev = free_node;
+
+      free_node->prev = forward_neighbor->prev;
+      free_node->prev->next = free_node;
+    }
+    else if (forward_neighbor->prev != NULL && forward_neighbor->next == NULL)      // forward neighbor is at the end of free list
+    {
+      free_node->next = NULL;
+
+      free_node->prev = forward_neighbor->prev;
+      free_node->prev->next = free_node;
+    }
 	}
 	else if (!prev_alloc && next_alloc)
 	{
+    // DO coalesce with the back neighbor
 		size += GET_SIZE(HDRP(PREV_BLKP(pp)));
-		//GET_SIZE(FTRP(pp)) = size;
-		PUT(FTRP(pp), size);
-		//GET_SIZE(HDRP(PREV_BLKP(pp))) = size;
-		PUT(HDRP(PREV_BLKP(pp)), PACK(size, prev_alloc));
+		GET_SIZE(FTRP(pp)) = size;
+		//PUT(FTRP(pp), size);
+		GET_SIZE(HDRP(PREV_BLKP(pp))) = size;
+		//PUT(HDRP(PREV_BLKP(pp)), PACK(size, prev_alloc));
 		pp = PREV_BLKP(pp);
+
+    // DO NOT replace the back neighbor in the free list
 	}
 	else if (!prev_alloc && !next_alloc)
 	{
+    // DO coalesce with both neighbors
 		size += (GET_SIZE(HDRP(NEXT_BLKP(pp))) + GET_SIZE(HDRP(PREV_BLKP(pp))));
-		//GET_SIZE(FTRP(NEXT_BLKP(pp))) = size;
-		PUT(FTRP(NEXT_BLKP(pp)), size);
-		//GET_SIZE(HDRP(PREV_BLKP(pp))) = size;
-		PUT(HDRP(PREV_BLKP(pp)), PACK(size, prev_alloc));
+		GET_SIZE(FTRP(NEXT_BLKP(pp))) = size;
+		//PUT(FTRP(NEXT_BLKP(pp)), size);
+		GET_SIZE(HDRP(PREV_BLKP(pp))) = size;
+		//PUT(HDRP(PREV_BLKP(pp)), PACK(size, prev_alloc));
 		pp = PREV_BLKP(pp);
 	}
 }
