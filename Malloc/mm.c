@@ -29,6 +29,9 @@
 /* rounds up to the nearest multiple of mem_pagesize() */
 #define PAGE_ALIGN(size) (((size) + (mem_pagesize()-1)) & ~(mem_pagesize()-1))
 
+/* rounds down to the nearest multiple of mem_pagesize() */
+#define ADDRESS_PAGE_START(p) ((void *)(((size_t)p) & ~(mem_pagesize()-1)))
+
 /* the size of additional blocks of memory that must be allocated with each payload */
 #define OVERHEAD (sizeof(block_header) + sizeof(block_footer))
 
@@ -61,81 +64,173 @@
 /* get the previous block's payload (pointer) */
 #define PREV_BLKP(bp) ((char *)(bp)-GET_SIZE((char *)(bp)-OVERHEAD))
 
-/* get the next value of a free list node */
-#define GET_NEXT_FREE_POINTER(p) ((list_node *)(p))->next
-
-#define GET_NEXT_FREE_VALUE(p) *(((list_node *)(p))->next)
-
-/* get the prev value of a free list node */
-#define GET_PREV_FREE_POINTER(p) ((list_node *)(p))->prev
-
-#define GET_PREV_FREE_VALUE(p) *(((list_node *)(p))->prev)
-
 /* get the max of two values */
 #define MAX(a,b) (((a)>(b))?(a):(b))
 
 static void mm_coalesce(void *pp);
+static int ptr_is_mapped(void *p, size_t len);
 
 list_node *free_list = NULL;
-void *current_avail = NULL;
-int current_avail_size = 0;
+list_node *last_page = NULL;
+char debugBool = 0;
+int debugCounter = 0;
 
 /* 
- * mm_init - initialize the malloc package.
+ * mm_init - initialize the malloc package with 8 pages.
  */
 int mm_init(void)
 {
-  current_avail = mem_map(mem_pagesize());
-  current_avail_size = mem_pagesize();
+  void *setupPointer = mem_map(8 * mem_pagesize());
+
+  list_node *pageNode = (list_node *)setupPointer;              // Set up page pointer
+  pageNode->next = NULL;
+  pageNode->prev = NULL;
+  last_page = pageNode;
+  setupPointer += sizeof(list_node);
+
+                                                              // Set up epiloge pointer
+  void *epiloguePointer = setupPointer + ( 8 * mem_pagesize()) - sizeof(block_header) - sizeof(block_footer);
+  GET_SIZE(epiloguePointer) = 0x1;
+  GET_ALLOC(epiloguePointer) = 0x1;
+
+                                                              // Set up initial chunk
+  GET_SIZE(setupPointer) = (8 * mem_pagesize()) - sizeof(list_node) - sizeof(block_header);
+  GET_ALLOC(setupPointer) = 0x0;
+  void *footerPointer = setupPointer + GET_SIZE(setupPointer) - sizeof(block_footer);
+  GET_SIZE(footerPointer) = mem_pagesize() - sizeof(list_node) - sizeof(block_header);
+
+                                                              // Set up prologue chunk
+  list_node *firstFreeNode = setupPointer + sizeof(block_header);
+  firstFreeNode->next = NULL;
+  firstFreeNode->prev = NULL;
+  free_list = firstFreeNode;
 
   mm_malloc(0);
-  PUT(current_avail + current_avail_size - sizeof(block_footer), PACK(ALIGNMENT, 0x1));
-  free_list = current_avail + (3 * ALIGNMENT);
   
   return 0;
 }
 
 /* 
- * mm_malloc - Allocate a block by using bytes from current_avail,
+ * mm_malloc - Allocate a block by iterating through the free list,
  *     grabbing a new page if necessary.
  */
 void *mm_malloc(size_t size)
 {
-  int needSize = MAX(size, sizeof(list_node));
-  int newsize = ALIGN(needSize + OVERHEAD);
+  //printf("%d\n", debugCounter++);
+  size_t needSize = MAX(size, sizeof(list_node));
+  size_t newSize = ALIGN(needSize + OVERHEAD);
   size_t bestFit = -1;
   void *p;
 
   char foundFit = 0;
   list_node *bestNode = free_list;
   list_node *iterator = free_list;
-  while (iterator->next != NULL)
+  //printf("The best node is %zu, whereas the iterator is %zu\n", bestNode, iterator);
+  do
   {
     size_t thisSize = GET_SIZE(HDRP(iterator));
-    if (thisSize >= newsize && thisSize < bestFit)
+    if (thisSize >= newSize && thisSize < bestFit)
     {
       bestFit = thisSize;
       bestNode = iterator;
       foundFit = 1;
     }
     iterator = iterator->next;
-  }
+  } while(iterator != NULL);
 
   if (!foundFit)
   {
-    //TODO: map new memory and link it to old memory
+    newSize = MAX(PAGE_ALIGN(size), 8 * mem_pagesize());
+    //printf("needed size is %zu vs newSize which is %zu\n", size, newSize);
+    void *setupPointer = mem_map(newSize);
+
+    list_node *pageNode = (list_node *)setupPointer;              // Set up page pointer
+    pageNode->next = NULL;
+    pageNode->prev = last_page;
+    pageNode->prev->next = pageNode;
+    last_page = pageNode;
+    setupPointer += sizeof(list_node);
+
+                                                              // Set up epiloge pointer
+    void *epiloguePointer = setupPointer + ( 8 * mem_pagesize()) - sizeof(block_header) - sizeof(block_footer);
+    GET_SIZE(epiloguePointer) = 0x1;
+    GET_ALLOC(epiloguePointer) = 0x1;
+
+                                                                  // Set up initial chunk
+    GET_SIZE(setupPointer) = (8 * mem_pagesize()) - sizeof(list_node) - sizeof(block_header);
+    GET_ALLOC(setupPointer) = 0x0;
+    void *footerPointer = setupPointer + GET_SIZE(setupPointer) - sizeof(block_footer);
+    GET_SIZE(footerPointer) = mem_pagesize() - sizeof(list_node) - sizeof(block_header);
+
+                                                                  // Set up prologue chunk
+    list_node *firstFreeNode = free_list;
+    list_node *newFreeNode = (list_node *)setupPointer + sizeof(block_header);
+    newFreeNode->next = firstFreeNode;
+    newFreeNode->next->prev = newFreeNode;
+    newFreeNode->prev = NULL;
+    free_list = newFreeNode;
+    bestNode = mm_malloc(0) + sizeof(block_footer);
   }
 
-  GET_SIZE(bestNode) = newsize;                        // Set header information
-  GET_ALLOC(bestNode) = 0x1;
-  //PUT((block_header *)current_avail, PACK(newsize, 0x1));   
-  p = bestNode + sizeof(block_header);                 // Set the payload pointer
-  GET_SIZE(FTRP(p)) = newsize;                              // Set the footer pointer memory to footer
-  //PUT(FTRP(p), newsize);                                    
+  GET_SIZE(HDRP(bestNode)) = newSize;                         // Set header information
+  GET_ALLOC(HDRP(bestNode)) = 0x1; 
+  p = bestNode;                                               // Set the payload pointer
+  GET_SIZE(FTRP(p)) = newSize;                                // Set the footer pointer memory to footer                               
 
-  PUT((block_header *)current_avail, current_avail_size);   // Set the header of the unallocated memory
-  free_list = current_avail + sizeof(block_header);
-  
+  if ((bestFit - newSize) >  (sizeof(list_node) + OVERHEAD))  // If there's leftover memory
+  {
+
+    // Set new header information
+    block_header *new_header = (block_header *)(FTRP(p) + sizeof(block_footer));
+    GET_SIZE(new_header) = bestFit - newSize;
+    GET_ALLOC(new_header) = 0x0;
+    void *n = new_header + 1;
+    GET_SIZE(FTRP(n)) = bestFit - newSize;
+
+    // replace old free list node with new node
+    list_node *old_node  = (list_node *)p;
+    list_node *free_node = (list_node *)n;
+    if (old_node->next != NULL)
+    {
+      free_node->next = old_node->next;
+      old_node->next = NULL;
+    }
+
+    if (old_node->prev != NULL)
+    {
+      free_node->prev = old_node->prev;
+      old_node->prev = NULL;
+    }
+    else
+    {
+      free_list = free_node;
+    }
+  }
+  else                                                        // If there's no leftover memory
+  {
+    // remove old node from the free list, but don't replace it
+    list_node *old_node = (list_node *)p;
+    if (old_node->next != NULL && old_node->prev != NULL)     // Node is in the middle of free list
+    {
+      old_node->prev->next = old_node->next;
+      old_node->next->prev = old_node->prev;
+      old_node->prev = NULL;
+      old_node->next = NULL;
+    }
+    else if (old_node->next != NULL && old_node->prev == NULL)  // Node is at the beginning of free list
+    {
+      free_list = old_node->next;
+      old_node->next->prev = NULL;
+      old_node->prev = NULL;
+      old_node->next = NULL;
+    }
+    else if (old_node->next == NULL && old_node->prev != NULL)  // Node is at the end of the free list
+    {
+      old_node->prev->next = NULL;
+      old_node->prev = NULL;
+      old_node->next = NULL;
+    }
+  }
   
   //TODO: Make sure payload pointer is 16-byte aligned
   //TODO: Avoiding footers in allocated blocks
@@ -144,11 +239,10 @@ void *mm_malloc(size_t size)
 }
 
 /*
- * mm_free - Freeing a block does nothing.
+ * mm_free 
  */
 void mm_free(void *ptr)
 {
-  //PUT(HDRP(ptr), GET_SIZE(ptr));
   GET_ALLOC(HDRP(ptr)) = 0x1;
   mm_coalesce(ptr);
 }
@@ -158,8 +252,16 @@ void mm_free(void *ptr)
   */
 static void mm_coalesce(void *pp)
 {
-	size_t prev_alloc = GET_ALLOC(HDRP(PREV_BLKP(pp)));
-	size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(pp)));
+  char prev_alloc = 0;
+  char next_alloc = 0;
+  if (ptr_is_mapped(HDRP(PREV_BLKP(pp)), GET_SIZE(PREV_BLKP(pp))))
+  {
+    prev_alloc = GET_ALLOC(HDRP(PREV_BLKP(pp)));
+  }
+  if (ptr_is_mapped(HDRP(NEXT_BLKP(pp)), GET_SIZE(PREV_BLKP(pp))))
+  {
+    next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(pp)));
+  }
 	size_t size = GET_SIZE(HDRP(pp));
 
 	if (prev_alloc && next_alloc)
@@ -193,6 +295,9 @@ static void mm_coalesce(void *pp)
       free_node->next = forward_neighbor->next;
       free_node->next->prev = free_node;
 
+      forward_neighbor->next = NULL;
+      forward_neighbor->prev = NULL;
+
       free_node->prev = NULL;
       free_list = free_node;
     }
@@ -203,6 +308,9 @@ static void mm_coalesce(void *pp)
 
       free_node->prev = forward_neighbor->prev;
       free_node->prev->next = free_node;
+
+      forward_neighbor->next = NULL;
+      forward_neighbor->prev = NULL;
     }
     else if (forward_neighbor->prev != NULL && forward_neighbor->next == NULL)      // forward neighbor is at the end of free list
     {
@@ -210,6 +318,8 @@ static void mm_coalesce(void *pp)
 
       free_node->prev = forward_neighbor->prev;
       free_node->prev->next = free_node;
+
+      forward_neighbor->prev = NULL;
     }
 	}
 	else if (!prev_alloc && next_alloc)
@@ -236,12 +346,61 @@ static void mm_coalesce(void *pp)
 	}
 }
 
+static int ptr_is_mapped(void *p, size_t len) {
+  void *s = ADDRESS_PAGE_START(p);
+  return mem_is_mapped(s, PAGE_ALIGN((p + len) - s));
+}
+
 /*
  * mm_check - Check whether the heap is ok, so that mm_malloc()
  *            and proper mm_free() calls won't crash.
  */
 int mm_check()
 {
+  list_node *page_iterator = last_page;
+  do
+  {
+    block_header *chunk_iterator = (block_header *)last_page + 2;
+
+    // check prologue information
+    if (GET_SIZE(HDRP(chunk_iterator)) != 0x30 || GET_ALLOC(HDRP(chunk_iterator)) != 0x1 || GET_SIZE(FTRP(chunk_iterator)) != 0x30)
+    {
+      printf("prologue is broke\n");
+      return 0;
+    }
+
+    char prev_alloc = 1;
+
+    do
+    {
+      chunk_iterator += GET_SIZE(HDRP(chunk_iterator)) / ALIGNMENT;
+      size_t block_size = GET_SIZE(HDRP(chunk_iterator));
+      char block_alloc  = GET_ALLOC(HDRP(chunk_iterator));
+      if (!block_alloc && !prev_alloc)
+      {
+        printf("failed coalesce\n");
+        return 0;
+      }
+      prev_alloc = block_alloc;
+      if (GET_SIZE(FTRP(chunk_iterator)) != block_size)
+      {
+        printf("inconsistent header/footers\n");
+        return 0;
+      }
+      if (!block_alloc)
+      {
+        list_node *fl_node = (list_node *)chunk_iterator;
+        if (fl_node->next == NULL && fl_node->prev == NULL)
+        {
+          printf("free block isn't in the free list\n");
+          return 0;
+        }
+      }
+
+    } while (ptr_is_mapped(NEXT_BLKP(chunk_iterator), ALIGNMENT));
+
+    page_iterator = last_page->prev;
+  } while (page_iterator != NULL);
   return 1;
 }
 
@@ -251,5 +410,5 @@ int mm_check()
  */
 int mm_can_free(void *p)
 {
-  return 1;
+  return GET_ALLOC(HDRP(p));
 }
