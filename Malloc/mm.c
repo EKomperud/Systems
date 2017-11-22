@@ -278,99 +278,57 @@ void mm_free(void *ptr)
   */
 static void mm_coalesce(void *pp)
 {
-  //char back_alloc = 0;
-  list_node *back_neighbor = NULL;
-  //char fwrd_alloc = 0;
-  list_node *fwrd_neighbor = NULL;
-  if (ptr_is_mapped(HDRP(PREV_BLKP(pp)), OVERHEAD) && !GET_ALLOC(HDRP(PREV_BLKP(pp))))
-  {
-    back_neighbor = (list_node *)PREV_BLKP(pp);
-  }
-  if (ptr_is_mapped(HDRP(NEXT_BLKP(pp)), OVERHEAD) && !GET_ALLOC(HDRP(NEXT_BLKP(pp))))
-  {
-    fwrd_neighbor = (list_node *)NEXT_BLKP(pp);
-  }
-	size_t size = GET_SIZE(HDRP(pp));
-
-	if (back_neighbor != NULL && fwrd_neighbor != NULL)
+	list_node *back_neighbor = NULL;
+	list_node *fwrd_neighbor = NULL;
+  
+	if (ptr_is_mapped(HDRP(PREV_BLKP(pp)), OVERHEAD) && !GET_ALLOC(HDRP(PREV_BLKP(pp))))
 	{
-    // DO NOT coalesce with neighboring blocks
-
-		// DO update the free list
-    list_node *free_node = (list_node *)pp;
-    // install pointer from you, to the current head of the free list
-    free_node->next = free_list;
-    free_list->prev = free_node;
-
-    // update free list pointer to point to you
-    free_list = free_node;
+		back_neighbor = (list_node *)PREV_BLKP(pp);
 	}
-	else if (back_neighbor != NULL && fwrd_neighbor != NULL)
+	if (ptr_is_mapped(HDRP(NEXT_BLKP(pp)), OVERHEAD) && !GET_ALLOC(HDRP(NEXT_BLKP(pp))))
 	{
-    // DO coalesce with the forward neighbor
-		size += GET_SIZE(HDRP(NEXT_BLKP(pp)));
-		GET_SIZE(HDRP(pp)) = size;
-		//PUT(HDRP(pp), PACK(size,prev_alloc));
-		GET_SIZE(FTRP(pp)) = size;
-		//PUT(FTRP(pp), size);
-
-    // DO replace the forward neighbor in the free list
-    list_node *free_node = (list_node *)pp;
-    list_node *forward_neighbor = (list_node *)NEXT_BLKP(pp);
-
-    if (forward_neighbor->prev == NULL && forward_neighbor->next != NULL)           // forward neighbor is the start of free list
-    {
-      free_node->next = forward_neighbor->next;
-      free_node->next->prev = free_node;
-
-      forward_neighbor->next = NULL;
-      forward_neighbor->prev = NULL;
-
-      free_node->prev = NULL;
-      free_list = free_node;
-    }
-    else if (forward_neighbor->prev != NULL && forward_neighbor->next != NULL)      // forward neighbor is in the middle of free list
-    {
-      free_node->next = forward_neighbor->next;
-      free_node->next->prev = free_node;
-
-      free_node->prev = forward_neighbor->prev;
-      free_node->prev->next = free_node;
-
-      forward_neighbor->next = NULL;
-      forward_neighbor->prev = NULL;
-    }
-    else if (forward_neighbor->prev != NULL && forward_neighbor->next == NULL)      // forward neighbor is at the end of free list
-    {
-      free_node->next = NULL;
-
-      free_node->prev = forward_neighbor->prev;
-      free_node->prev->next = free_node;
-
-      forward_neighbor->prev = NULL;
-    }
+		fwrd_neighbor = (list_node *)NEXT_BLKP(pp);
 	}
-	else if (back_neighbor == NULL && fwrd_neighbor != NULL)
+	
+	if (fwrd_neighbor != NULL)
 	{
-    // DO coalesce with the back neighbor
-		size += GET_SIZE(HDRP(PREV_BLKP(pp)));
-		GET_SIZE(FTRP(pp)) = size;
-		//PUT(FTRP(pp), size);
-		GET_SIZE(HDRP(PREV_BLKP(pp))) = size;
-		//PUT(HDRP(PREV_BLKP(pp)), PACK(size, prev_alloc));
-		pp = PREV_BLKP(pp);
-
-    // DO NOT replace the back neighbor in the free list
+		size_t old_size = GET_SIZE(HDRP(pp));
+		GET_SIZE(HDRP(pp)) += GET_SIZE(HDRP(fwrd_neighbor));
+		GET_SIZE(FTRP(pp)) += old_size;
 	}
-	else if (back_neighbor != NULL && fwrd_neighbor != NULL)
+	if (back_neighbor != NULL)
 	{
-    // DO coalesce with both neighbors
-		size += (GET_SIZE(HDRP(NEXT_BLKP(pp))) + GET_SIZE(HDRP(PREV_BLKP(pp))));
-		GET_SIZE(FTRP(NEXT_BLKP(pp))) = size;
-		//PUT(FTRP(NEXT_BLKP(pp)), size);
-		GET_SIZE(HDRP(PREV_BLKP(pp))) = size;
-		//PUT(HDRP(PREV_BLKP(pp)), PACK(size, prev_alloc));
-		pp = PREV_BLKP(pp);
+		size_t old_size = GET_SIZE(HDRP(back_neighbor));
+		GET_SIZE(HDRP(back_neighbor)) += GET_SIZE(HDRP(pp));
+		GET_SIZE(FTRP(back_neighbor)) += old_size;
+	}
+	
+	if (back_neighbor == NULL)
+	{
+		list_node *free_chunk = (list_node *)pp;
+		list_node *fl_head = free_list;
+		
+		free_chunk->next = fl_head;
+		fl_head->prev = free_chunk;
+		free_chunk->prev = NULL;
+		free_list = free_chunk;
+	}
+	if (fwrd_neighbor != NULL)
+	{
+		if (fwrd_neighbor->prev != NULL)
+		{
+			fwrd_neighbor->prev->next = fwrd_neighbor->next;
+		}
+		if (fwrd_neighbor->next != NULL)
+		{
+			fwrd_neighbor->next->prev = fwrd_neighbor->prev;
+			if (fwrd_neighbor->prev == NULL)
+			{
+				free_list = fwrd_neighbor->next;
+			}
+		}
+		fwrd_neighbor->prev = NULL;
+		fwrd_neighbor->next = NULL;
 	}
 }
 
