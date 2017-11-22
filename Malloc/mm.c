@@ -70,6 +70,7 @@
 static void mm_coalesce(void *pp);
 static int ptr_is_mapped(void *p, size_t len);
 static void print_free_list();
+static void print_mapped_pages();
 
 list_node *free_list = NULL;
 list_node *last_page = NULL;
@@ -98,7 +99,7 @@ int mm_init(void)
   GET_SIZE(setupPointer) = (8 * mem_pagesize()) - sizeof(list_node) - sizeof(block_header);
   GET_ALLOC(setupPointer) = 0x0;
   void *footerPointer = setupPointer + GET_SIZE(setupPointer) - sizeof(block_footer);
-  GET_SIZE(footerPointer) = mem_pagesize() - sizeof(list_node) - sizeof(block_header);
+  GET_SIZE(footerPointer) = (8 * mem_pagesize()) - sizeof(list_node) - sizeof(block_header);
 
                                                               // Set up prologue chunk
   list_node *firstFreeNode = setupPointer + sizeof(block_header);
@@ -151,25 +152,33 @@ void *mm_malloc(size_t size)
     printf("no fit found. allocate more memory\n");
     newSize = MAX(PAGE_ALIGN(newSize), 8 * mem_pagesize());
     void *setupPointer = mem_map(newSize);
+    printf("setupPointer starts at %zu and goes to %zu\n", setupPointer, setupPointer + newSize);
+    printf("before: "); print_mapped_pages();
 
     list_node *pageNode = (list_node *)setupPointer;              // Set up page pointer
-    pageNode->next = NULL;
-    pageNode->prev = last_page;
-    pageNode->prev->next = pageNode;
+    pageNode->prev = NULL;
+    pageNode->next = last_page;
+    pageNode->next->prev = pageNode;
     last_page = pageNode;
     setupPointer += sizeof(list_node);
-
+    printf("after: "); print_mapped_pages();
+    printf("is this pointer mapped? %d\n", ptr_is_mapped(setupPointer, newSize - OVERHEAD));
                                                               // Set up epiloge pointer
-    void *epiloguePointer = setupPointer + ( 8 * mem_pagesize()) - sizeof(block_header) - sizeof(block_footer);
+    size_t epiAddress = setupPointer + newSize - OVERHEAD;
+    printf("i'm currently trying to set epiPointer to %zu\n", epiAddress);
+    block_header *epiloguePointer = (block_header *)epiAddress;
+    printf("we make it here");
     GET_SIZE(epiloguePointer) = 0x1;
     GET_ALLOC(epiloguePointer) = 0x1;
-
+    
                                                                   // Set up initial chunk
     GET_SIZE(setupPointer) = newSize - sizeof(list_node) - sizeof(block_header);
     GET_ALLOC(setupPointer) = 0x0;
-    void *footerPointer = setupPointer + GET_SIZE(setupPointer) - sizeof(block_footer);
-    GET_SIZE(footerPointer) = mem_pagesize() - sizeof(list_node) - sizeof(block_header);
-	
+    size_t footAddress = setupPointer + GET_SIZE(setupPointer) - sizeof(block_footer);
+    block_footer *footerPointer = (block_footer *)footAddress;
+    GET_SIZE(footerPointer) = newSize - sizeof(list_node) - sizeof(block_header);
+    
+    
     // Set up prologue chunk
     if (free_list != NULL)
     {
@@ -188,13 +197,15 @@ void *mm_malloc(size_t size)
       free_list = newFreeNode;
     }    
 
+    
     void *prologue = mm_malloc(0);
+    printf("we also make it here");
     bestNode = prologue + ALIGNMENT + OVERHEAD;
     bestFit = GET_SIZE(HDRP(bestNode));
 
     //Extend sanity checker
-    //printf("pageNode is at %zu. prologue should be 32 above that: %zu. Free list should be 48 above that: %zu.", pageNode, prologue, free_list);
-    //printf("Epilogue should be 8*page_size - 16 after pageNode: %zu", epiloguePointer );
+    printf("pageNode is at %zu. prologue should be 32 above that: %zu. Free list should be 48 above that: %zu.", pageNode, prologue, free_list);
+    printf("Epilogue should be 8*page_size - 16 after pageNode: %zu", epiloguePointer );
   }
 
   GET_SIZE(HDRP(bestNode)) = newSize;                         // Set header information for the newly allocated block
@@ -431,6 +442,18 @@ static void print_free_list()
   while (iterator != NULL)
     {
       printf("%zu --> ",iterator);
+      iterator = iterator->next;
+    }
+  printf("END\n");
+}
+
+static void print_mapped_pages()
+{
+  list_node *iterator = last_page;
+  printf("last_page --> ");
+  while (iterator != NULL)
+    {
+      printf("%zu --> ", iterator);
       iterator = iterator->next;
     }
   printf("END\n");
