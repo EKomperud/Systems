@@ -140,7 +140,7 @@ void *mm_malloc(size_t size)
 
   if (!foundFit)
   {
-    newSize = MAX(PAGE_ALIGN(size), 8 * mem_pagesize());
+    newSize = MAX(PAGE_ALIGN(newSize), 8 * mem_pagesize());
     //printf("needed size is %zu vs newSize which is %zu\n", size, newSize);
     void *setupPointer = mem_map(newSize);
 
@@ -161,8 +161,7 @@ void *mm_malloc(size_t size)
     GET_ALLOC(setupPointer) = 0x0;
     void *footerPointer = setupPointer + GET_SIZE(setupPointer) - sizeof(block_footer);
     GET_SIZE(footerPointer) = mem_pagesize() - sizeof(list_node) - sizeof(block_header);
-
-
+	
     // Set up prologue chunk
     if (free_list != NULL)
     {
@@ -179,13 +178,10 @@ void *mm_malloc(size_t size)
       newFreeNode->next = NULL;
       newFreeNode->prev = NULL;
       free_list = newFreeNode;
-    }
+    }    
     
-    
-    
-    
-    
-    bestNode = mm_malloc(0) + sizeof(block_footer);
+    bestNode = mm_malloc(0) + ALIGNMNET + OVERHEAD;
+	bestFit = GET_SIZE(HDRP(bestNode));
   }
 
   GET_SIZE(HDRP(bestNode)) = newSize;                         // Set header information for the newly allocated block
@@ -193,7 +189,7 @@ void *mm_malloc(size_t size)
   p = bestNode;                                               // Set the payload pointer
   GET_SIZE(FTRP(p)) = newSize;                                // Set the footer pointer memory to footer                               
 
-  if ((bestFit - newSize) >  (sizeof(list_node) + OVERHEAD))  // If there's leftover memory
+  if ((bestFit - newSize) >=  (sizeof(list_node) + OVERHEAD))  // If there's leftover memory
   {
 
     // Set new header information
