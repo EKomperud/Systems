@@ -69,6 +69,7 @@
 
 static void mm_coalesce(void *pp);
 static int ptr_is_mapped(void *p, size_t len);
+static void print_free_list();
 
 list_node *free_list = NULL;
 list_node *last_page = NULL;
@@ -104,9 +105,13 @@ int mm_init(void)
   firstFreeNode->next = NULL;
   firstFreeNode->prev = NULL;
   free_list = firstFreeNode;
-
-  mm_malloc(0);
   
+  void *prologue = mm_malloc(0);
+
+  // mm_init sanity checker:
+  //printf("pageNode is at %zu. prologue should be 32 above that: %zu. Free list should be 48 above that: %zu.", pageNode, prologue, free_list);
+  //printf(" Epilogue should be 8*page_size - 16 after pageNode: %zu", epiloguePointer );
+  print_free_list();
   return 0;
 }
 
@@ -116,6 +121,7 @@ int mm_init(void)
  */
 void *mm_malloc(size_t size)
 {
+  printf("allocating memory of size %zu\n", size);
   //printf("%d\n", debugCounter++);
   size_t needSize = MAX(size, sizeof(list_node));
   size_t newSize = ALIGN(needSize + OVERHEAD);
@@ -126,6 +132,7 @@ void *mm_malloc(size_t size)
   list_node *bestNode = free_list;
   list_node *iterator = free_list;
   //printf("The best node is %zu, whereas the iterator is %zu\n", bestNode, iterator);
+  print_free_list();
   while(iterator != NULL)
   {
     size_t thisSize = GET_SIZE(HDRP(iterator));
@@ -179,9 +186,14 @@ void *mm_malloc(size_t size)
       newFreeNode->prev = NULL;
       free_list = newFreeNode;
     }    
-    
-    bestNode = mm_malloc(0) + ALIGNMNET + OVERHEAD;
-	bestFit = GET_SIZE(HDRP(bestNode));
+
+    void *prologue = mm_malloc(0);
+    bestNode = prologue + ALIGNMENT + OVERHEAD;
+    bestFit = GET_SIZE(HDRP(bestNode));
+
+    //Extend sanity checker
+    //printf("pageNode is at %zu. prologue should be 32 above that: %zu. Free list should be 48 above that: %zu.", pageNode, prologue, free_list);
+    //printf("Epilogue should be 8*page_size - 16 after pageNode: %zu", epiloguePointer );
   }
 
   GET_SIZE(HDRP(bestNode)) = newSize;                         // Set header information for the newly allocated block
@@ -265,7 +277,8 @@ void *mm_malloc(size_t size)
  */
 void mm_free(void *ptr)
 {
-  GET_ALLOC(HDRP(ptr)) = 0x1;
+  printf("attempting to free...\n");
+  GET_ALLOC(HDRP(ptr)) = 0x0;
   mm_coalesce(ptr);
 }
 
@@ -274,6 +287,7 @@ void mm_free(void *ptr)
   */
 static void mm_coalesce(void *pp)
 {
+  printf("pp's head is at %zu and its footer is at %zu\n", HDRP(pp), FTRP(pp));
 	list_node *back_neighbor = NULL;
 	list_node *fwrd_neighbor = NULL;
   
@@ -285,29 +299,37 @@ static void mm_coalesce(void *pp)
 	{
 		fwrd_neighbor = (list_node *)NEXT_BLKP(pp);
 	}
+	printf("back_neighbor is %zu and fwrd_neighbor is %zu for %zu\n", back_neighbor, fwrd_neighbor, pp);
 	
 	if (fwrd_neighbor != NULL)
 	{
 		size_t old_size = GET_SIZE(HDRP(pp));
+		printf("pp's size is %zu. fwrd_neighbor's size is %zu. ", old_size, GET_SIZE(HDRP(fwrd_neighbor)));
 		GET_SIZE(HDRP(pp)) += GET_SIZE(HDRP(fwrd_neighbor));
 		GET_SIZE(FTRP(pp)) += old_size;
+		printf("And now pp's size is %zu.\n", GET_SIZE(HDRP(pp)));
 	}
 	if (back_neighbor != NULL)
 	{
 		size_t old_size = GET_SIZE(HDRP(back_neighbor));
+		printf("pp's size is %zu. back_neighbor's size is %zu. ", old_size, GET_SIZE(HDRP(back_neighbor)));
 		GET_SIZE(HDRP(back_neighbor)) += GET_SIZE(HDRP(pp));
 		GET_SIZE(FTRP(back_neighbor)) += old_size;
+		printf("And now back_neighbor's size is %zu.\n", GET_SIZE(HDRP(back_neighbor)));
 	}
 	
 	if (back_neighbor == NULL)
 	{
-		list_node *free_chunk = (list_node *)pp;
+	  print_free_list();
+	  printf("adding pp %zu to the head of the free list",pp);
+	        list_node *free_chunk = (list_node *)pp;
 		list_node *fl_head = free_list;
 		
 		free_chunk->next = fl_head;
 		fl_head->prev = free_chunk;
 		free_chunk->prev = NULL;
 		free_list = free_chunk;
+		print_free_list();
 	}
 	if (fwrd_neighbor != NULL)
 	{
@@ -339,6 +361,7 @@ static int ptr_is_mapped(void *p, size_t len) {
  */
 int mm_check()
 {
+  printf("doing a check..\n");
   list_node *page_iterator = last_page;
   do
   {
@@ -393,4 +416,16 @@ int mm_check()
 int mm_can_free(void *p)
 {
   return GET_ALLOC(HDRP(p));
+}
+
+static void print_free_list()
+{
+  list_node *iterator = free_list;
+  printf("free_list --> ");
+  while (iterator != NULL)
+    {
+      printf("%zu --> ",iterator);
+      iterator = iterator->next;
+    }
+  printf("END\n");
 }
