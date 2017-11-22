@@ -111,7 +111,7 @@ int mm_init(void)
   // mm_init sanity checker:
   //printf("pageNode is at %zu. prologue should be 32 above that: %zu. Free list should be 48 above that: %zu.", pageNode, prologue, free_list);
   //printf(" Epilogue should be 8*page_size - 16 after pageNode: %zu", epiloguePointer );
-  print_free_list();
+  
   return 0;
 }
 
@@ -121,7 +121,7 @@ int mm_init(void)
  */
 void *mm_malloc(size_t size)
 {
-  printf("allocating memory of size %zu\n", size);
+  //printf("allocating memory of size %zu\n", size);
   //printf("%d\n", debugCounter++);
   size_t needSize = MAX(size, sizeof(list_node));
   size_t newSize = ALIGN(needSize + OVERHEAD);
@@ -131,8 +131,8 @@ void *mm_malloc(size_t size)
   char foundFit = 0;
   list_node *bestNode = free_list;
   list_node *iterator = free_list;
-  //printf("The best node is %zu, whereas the iterator is %zu\n", bestNode, iterator);
-  print_free_list();
+  //printf("before: ");
+  //print_free_list();
   while(iterator != NULL)
   {
     size_t thisSize = GET_SIZE(HDRP(iterator));
@@ -144,11 +144,12 @@ void *mm_malloc(size_t size)
     }
     iterator = iterator->next;
   }
+  //printf("the best node is: %zu\n", bestNode);
 
   if (!foundFit)
   {
+    printf("no fit found. allocate more memory\n");
     newSize = MAX(PAGE_ALIGN(newSize), 8 * mem_pagesize());
-    //printf("needed size is %zu vs newSize which is %zu\n", size, newSize);
     void *setupPointer = mem_map(newSize);
 
     list_node *pageNode = (list_node *)setupPointer;              // Set up page pointer
@@ -199,8 +200,9 @@ void *mm_malloc(size_t size)
   GET_SIZE(HDRP(bestNode)) = newSize;                         // Set header information for the newly allocated block
   GET_ALLOC(HDRP(bestNode)) = 0x1;                            // Set the allocated status
   p = bestNode;                                               // Set the payload pointer
-  GET_SIZE(FTRP(p)) = newSize;                                // Set the footer pointer memory to footer                               
-
+  GET_SIZE(FTRP(p)) = newSize;                                // Set the footer pointer memory to footer
+  //printf("best_node's new size is: %zu\n", GET_SIZE(HDRP(bestNode)));
+  
   if ((bestFit - newSize) >=  (sizeof(list_node) + OVERHEAD))  // If there's leftover memory
   {
 
@@ -210,6 +212,8 @@ void *mm_malloc(size_t size)
     GET_ALLOC(new_header) = 0x0;
     void *n = new_header + 1;
     GET_SIZE(FTRP(n)) = bestFit - newSize;
+    //printf("new_header is at %zu and new_free_node is at %zu and new_footer is at %zu\n",new_header,n,FTRP(n));
+    //printf("new_header has a size of %zu\n",GET_SIZE(new_header));
 
     // Update the free list
     list_node *allocated_chunk  = (list_node *)p;
@@ -265,6 +269,8 @@ void *mm_malloc(size_t size)
       
     }
   }
+  //printf("after: ");
+  //print_free_list();
   
   //TODO: Make sure payload pointer is 16-byte aligned
   //TODO: Avoiding footers in allocated blocks
@@ -395,7 +401,7 @@ int mm_check()
       if (!block_alloc)
       {
         list_node *fl_node = (list_node *)chunk_iterator;
-        if (fl_node->next == NULL && fl_node->prev == NULL)
+        if ((fl_node->next == NULL && fl_node->prev == NULL) && free_list != fl_node)
         {
           printf("free block isn't in the free list\n");
           return 0;
