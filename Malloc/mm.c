@@ -126,7 +126,7 @@ void *mm_malloc(size_t size)
   list_node *bestNode = free_list;
   list_node *iterator = free_list;
   //printf("The best node is %zu, whereas the iterator is %zu\n", bestNode, iterator);
-  do
+  while(iterator != NULL)
   {
     size_t thisSize = GET_SIZE(HDRP(iterator));
     if (thisSize >= newSize && thisSize < bestFit)
@@ -136,7 +136,7 @@ void *mm_malloc(size_t size)
       foundFit = 1;
     }
     iterator = iterator->next;
-  } while(iterator != NULL);
+  }
 
   if (!foundFit)
   {
@@ -157,23 +157,39 @@ void *mm_malloc(size_t size)
     GET_ALLOC(epiloguePointer) = 0x1;
 
                                                                   // Set up initial chunk
-    GET_SIZE(setupPointer) = (8 * mem_pagesize()) - sizeof(list_node) - sizeof(block_header);
+    GET_SIZE(setupPointer) = newSize - sizeof(list_node) - sizeof(block_header);
     GET_ALLOC(setupPointer) = 0x0;
     void *footerPointer = setupPointer + GET_SIZE(setupPointer) - sizeof(block_footer);
     GET_SIZE(footerPointer) = mem_pagesize() - sizeof(list_node) - sizeof(block_header);
 
-                                                                  // Set up prologue chunk
-    list_node *firstFreeNode = free_list;
-    list_node *newFreeNode = (list_node *)setupPointer + sizeof(block_header);
-    newFreeNode->next = firstFreeNode;
-    newFreeNode->next->prev = newFreeNode;
-    newFreeNode->prev = NULL;
-    free_list = newFreeNode;
+
+    // Set up prologue chunk
+    if (free_list != NULL)
+    {
+      list_node *firstFreeNode = free_list;
+      list_node *newFreeNode = (list_node *)setupPointer + sizeof(block_header);
+      newFreeNode->next = firstFreeNode;
+      newFreeNode->next->prev = newFreeNode;
+      newFreeNode->prev = NULL;
+      free_list = newFreeNode;
+    }
+    else
+    {
+      list_node *newFreeNode = (list_node *)setupPointer + sizeof(block_header);
+      newFreeNode->next = NULL;
+      newFreeNode->prev = NULL;
+      free_list = newFreeNode;
+    }
+    
+    
+    
+    
+    
     bestNode = mm_malloc(0) + sizeof(block_footer);
   }
 
-  GET_SIZE(HDRP(bestNode)) = newSize;                         // Set header information
-  GET_ALLOC(HDRP(bestNode)) = 0x1; 
+  GET_SIZE(HDRP(bestNode)) = newSize;                         // Set header information for the newly allocated block
+  GET_ALLOC(HDRP(bestNode)) = 0x1;                            // Set the allocated status
   p = bestNode;                                               // Set the payload pointer
   GET_SIZE(FTRP(p)) = newSize;                                // Set the footer pointer memory to footer                               
 
@@ -187,23 +203,31 @@ void *mm_malloc(size_t size)
     void *n = new_header + 1;
     GET_SIZE(FTRP(n)) = bestFit - newSize;
 
-    // replace old free list node with new node
-    list_node *old_node  = (list_node *)p;
-    list_node *free_node = (list_node *)n;
-    if (old_node->next != NULL)
+    // Update the free list
+    list_node *allocated_chunk  = (list_node *)p;
+    list_node *replacement_chunk = (list_node *)n;
+    
+    if (allocated_chunk->next != NULL)
     {
-      free_node->next = old_node->next;
-      old_node->next = NULL;
-    }
-
-    if (old_node->prev != NULL)
-    {
-      free_node->prev = old_node->prev;
-      old_node->prev = NULL;
+      allocated_chunk->next->prev = replacement_chunk;
+      replacement_chunk->next = allocated_chunk->next;
+      allocated_chunk->next = NULL;
     }
     else
     {
-      free_list = free_node;
+      replacement_chunk->next = NULL;
+    }
+
+    if (allocated_chunk->prev != NULL)
+    {
+      allocated_chunk->prev->next = replacement_chunk;
+      replacement_chunk->prev = allocated_chunk->prev;
+      allocated_chunk->prev = NULL;
+    }
+    else
+    {
+      replacement_chunk->prev = NULL;
+      free_list = replacement_chunk;
     }
   }
   else                                                        // If there's no leftover memory
@@ -219,16 +243,18 @@ void *mm_malloc(size_t size)
     }
     else if (old_node->next != NULL && old_node->prev == NULL)  // Node is at the beginning of free list
     {
-      free_list = old_node->next;
       old_node->next->prev = NULL;
-      old_node->prev = NULL;
+      free_list = old_node->next;
       old_node->next = NULL;
     }
     else if (old_node->next == NULL && old_node->prev != NULL)  // Node is at the end of the free list
     {
       old_node->prev->next = NULL;
       old_node->prev = NULL;
-      old_node->next = NULL;
+    }
+    else if (old_node->next == NULL && old_node->prev == NULL)
+    {
+      
     }
   }
   
@@ -252,19 +278,21 @@ void mm_free(void *ptr)
   */
 static void mm_coalesce(void *pp)
 {
-  char prev_alloc = 0;
-  char next_alloc = 0;
-  if (ptr_is_mapped(HDRP(PREV_BLKP(pp)), GET_SIZE(PREV_BLKP(pp))))
+  //char back_alloc = 0;
+  list_node *back_neighbor = NULL;
+  //char fwrd_alloc = 0;
+  list_node *fwrd_neighbor = NULL;
+  if (ptr_is_mapped(HDRP(PREV_BLKP(pp)), OVERHEAD) && !GET_ALLOC(HDRP(PREV_BLKP(pp))))
   {
-    prev_alloc = GET_ALLOC(HDRP(PREV_BLKP(pp)));
+    back_neighbor = (list_node *)PREV_BLKP(pp);
   }
-  if (ptr_is_mapped(HDRP(NEXT_BLKP(pp)), GET_SIZE(PREV_BLKP(pp))))
+  if (ptr_is_mapped(HDRP(NEXT_BLKP(pp)), OVERHEAD) && !GET_ALLOC(HDRP(NEXT_BLKP(pp))))
   {
-    next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(pp)));
+    fwrd_neighbor = (list_node *)NEXT_BLKP(pp);
   }
 	size_t size = GET_SIZE(HDRP(pp));
 
-	if (prev_alloc && next_alloc)
+	if (back_neighbor != NULL && fwrd_neighbor != NULL)
 	{
     // DO NOT coalesce with neighboring blocks
 
@@ -277,7 +305,7 @@ static void mm_coalesce(void *pp)
     // update free list pointer to point to you
     free_list = free_node;
 	}
-	else if (prev_alloc && !next_alloc)
+	else if (back_neighbor != NULL && fwrd_neighbor != NULL)
 	{
     // DO coalesce with the forward neighbor
 		size += GET_SIZE(HDRP(NEXT_BLKP(pp)));
@@ -322,7 +350,7 @@ static void mm_coalesce(void *pp)
       forward_neighbor->prev = NULL;
     }
 	}
-	else if (!prev_alloc && next_alloc)
+	else if (back_neighbor == NULL && fwrd_neighbor != NULL)
 	{
     // DO coalesce with the back neighbor
 		size += GET_SIZE(HDRP(PREV_BLKP(pp)));
@@ -334,7 +362,7 @@ static void mm_coalesce(void *pp)
 
     // DO NOT replace the back neighbor in the free list
 	}
-	else if (!prev_alloc && !next_alloc)
+	else if (back_neighbor != NULL && fwrd_neighbor != NULL)
 	{
     // DO coalesce with both neighbors
 		size += (GET_SIZE(HDRP(NEXT_BLKP(pp))) + GET_SIZE(HDRP(PREV_BLKP(pp))));
