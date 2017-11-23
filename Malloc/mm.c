@@ -122,6 +122,7 @@ int mm_init(void)
  */
 void *mm_malloc(size_t size)
 {
+  print_free_list();
   printf("allocating memory of size %zu\n", size);
   //printf("%d\n", debugCounter++);
   size_t needSize = MAX(size, sizeof(list_node));
@@ -197,7 +198,7 @@ void *mm_malloc(size_t size)
       free_list = newFreeNode;
     }    
 
-    
+    printf("let's allocate that proglogue block\n");
     void *prologue = mm_malloc(0);
     //printf("we also make it here");
     bestNode = prologue + ALIGNMENT + OVERHEAD;
@@ -441,7 +442,7 @@ static void print_free_list()
   printf("free_list --> ");
   while (iterator != NULL)
     {
-      printf("%zu --> ",iterator);
+      printf("%zu(%zu) --> ",iterator, GET_SIZE(HDRP(iterator)));
       iterator = iterator->next;
     }
   printf("END\n");
