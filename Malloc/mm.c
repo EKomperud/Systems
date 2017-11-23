@@ -122,7 +122,7 @@ int mm_init(void)
  */
 void *mm_malloc(size_t size)
 {
-  //printf("allocating memory of size %zu\n", size);
+  printf("allocating memory of size %zu\n", size);
   //printf("%d\n", debugCounter++);
   size_t needSize = MAX(size, sizeof(list_node));
   size_t newSize = ALIGN(needSize + OVERHEAD);
@@ -152,8 +152,8 @@ void *mm_malloc(size_t size)
     printf("no fit found. allocate more memory\n");
     newSize = MAX(PAGE_ALIGN(newSize), 8 * mem_pagesize());
     void *setupPointer = mem_map(newSize);
-    printf("setupPointer starts at %zu and goes to %zu\n", setupPointer, setupPointer + newSize);
-    printf("before: "); print_mapped_pages();
+    //printf("setupPointer starts at %zu and goes to %zu\n", setupPointer, setupPointer + newSize);
+    //printf("before: "); print_mapped_pages();
 
     list_node *pageNode = (list_node *)setupPointer;              // Set up page pointer
     pageNode->prev = NULL;
@@ -161,13 +161,13 @@ void *mm_malloc(size_t size)
     pageNode->next->prev = pageNode;
     last_page = pageNode;
     setupPointer += sizeof(list_node);
-    printf("after: "); print_mapped_pages();
-    printf("is this pointer mapped? %d\n", ptr_is_mapped(setupPointer, newSize - OVERHEAD));
+    //printf("after: "); print_mapped_pages();
+    //printf("is this pointer mapped? %d\n", ptr_is_mapped(setupPointer, newSize - OVERHEAD));
                                                               // Set up epiloge pointer
     size_t epiAddress = setupPointer + newSize - OVERHEAD;
-    printf("i'm currently trying to set epiPointer to %zu\n", epiAddress);
+    //printf("i'm currently trying to set epiPointer to %zu\n", epiAddress);
     block_header *epiloguePointer = (block_header *)epiAddress;
-    printf("we make it here");
+    //printf("we make it here");
     GET_SIZE(epiloguePointer) = 0x1;
     GET_ALLOC(epiloguePointer) = 0x1;
     
@@ -199,13 +199,13 @@ void *mm_malloc(size_t size)
 
     
     void *prologue = mm_malloc(0);
-    printf("we also make it here");
+    //printf("we also make it here");
     bestNode = prologue + ALIGNMENT + OVERHEAD;
     bestFit = GET_SIZE(HDRP(bestNode));
 
     //Extend sanity checker
-    printf("pageNode is at %zu. prologue should be 32 above that: %zu. Free list should be 48 above that: %zu.", pageNode, prologue, free_list);
-    printf("Epilogue should be 8*page_size - 16 after pageNode: %zu", epiloguePointer );
+    //printf("pageNode is at %zu. prologue should be 32 above that: %zu. Free list should be 48 above that: %zu.", pageNode, prologue, free_list);
+    //printf("Epilogue should be 8*page_size - 16 after pageNode: %zu", epiloguePointer );
   }
 
   GET_SIZE(HDRP(bestNode)) = newSize;                         // Set header information for the newly allocated block
@@ -294,9 +294,9 @@ void *mm_malloc(size_t size)
  */
 void mm_free(void *ptr)
 {
-  printf("attempting to free...\n");
-  GET_ALLOC(HDRP(ptr)) = 0x0;
-  mm_coalesce(ptr);
+  //printf("attempting to free...\n");
+  //GET_ALLOC(HDRP(ptr)) = 0x0;
+  //mm_coalesce(ptr);
 }
 
 /*
@@ -304,7 +304,7 @@ void mm_free(void *ptr)
   */
 static void mm_coalesce(void *pp)
 {
-  printf("pp's head is at %zu and its footer is at %zu\n", HDRP(pp), FTRP(pp));
+  //printf("pp's head is at %zu and its footer is at %zu\n", HDRP(pp), FTRP(pp));
 	list_node *back_neighbor = NULL;
 	list_node *fwrd_neighbor = NULL;
   
@@ -316,29 +316,29 @@ static void mm_coalesce(void *pp)
 	{
 		fwrd_neighbor = (list_node *)NEXT_BLKP(pp);
 	}
-	printf("back_neighbor is %zu and fwrd_neighbor is %zu for %zu\n", back_neighbor, fwrd_neighbor, pp);
+	//printf("back_neighbor is %zu and fwrd_neighbor is %zu for %zu\n", back_neighbor, fwrd_neighbor, pp);
 	
 	if (fwrd_neighbor != NULL)
 	{
 		size_t old_size = GET_SIZE(HDRP(pp));
-		printf("pp's size is %zu. fwrd_neighbor's size is %zu. ", old_size, GET_SIZE(HDRP(fwrd_neighbor)));
+		//printf("pp's size is %zu. fwrd_neighbor's size is %zu. ", old_size, GET_SIZE(HDRP(fwrd_neighbor)));
 		GET_SIZE(HDRP(pp)) += GET_SIZE(HDRP(fwrd_neighbor));
 		GET_SIZE(FTRP(pp)) += old_size;
-		printf("And now pp's size is %zu.\n", GET_SIZE(HDRP(pp)));
+		//printf("And now pp's size is %zu.\n", GET_SIZE(HDRP(pp)));
 	}
 	if (back_neighbor != NULL)
 	{
 		size_t old_size = GET_SIZE(HDRP(back_neighbor));
-		printf("pp's size is %zu. back_neighbor's size is %zu. ", old_size, GET_SIZE(HDRP(back_neighbor)));
+		//printf("pp's size is %zu. back_neighbor's size is %zu. ", old_size, GET_SIZE(HDRP(back_neighbor)));
 		GET_SIZE(HDRP(back_neighbor)) += GET_SIZE(HDRP(pp));
 		GET_SIZE(FTRP(back_neighbor)) += old_size;
-		printf("And now back_neighbor's size is %zu.\n", GET_SIZE(HDRP(back_neighbor)));
+		//printf("And now back_neighbor's size is %zu.\n", GET_SIZE(HDRP(back_neighbor)));
 	}
 	
 	if (back_neighbor == NULL)
 	{
-	  print_free_list();
-	  printf("adding pp %zu to the head of the free list",pp);
+	  //print_free_list();
+	  //printf("adding pp %zu to the head of the free list",pp);
 	        list_node *free_chunk = (list_node *)pp;
 		list_node *fl_head = free_list;
 		
@@ -346,7 +346,7 @@ static void mm_coalesce(void *pp)
 		fl_head->prev = free_chunk;
 		free_chunk->prev = NULL;
 		free_list = free_chunk;
-		print_free_list();
+		//print_free_list();
 	}
 	if (fwrd_neighbor != NULL)
 	{
@@ -378,7 +378,7 @@ static int ptr_is_mapped(void *p, size_t len) {
  */
 int mm_check()
 {
-  printf("doing a check..\n");
+  //printf("doing a check..\n");
   list_node *page_iterator = last_page;
   do
   {
@@ -387,7 +387,7 @@ int mm_check()
     // check prologue information
     if (GET_SIZE(HDRP(chunk_iterator)) != 0x30 || GET_ALLOC(HDRP(chunk_iterator)) != 0x1 || GET_SIZE(FTRP(chunk_iterator)) != 0x30)
     {
-      printf("prologue is broke\n");
+      //printf("prologue is broke\n");
       return 0;
     }
 
