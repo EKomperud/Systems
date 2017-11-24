@@ -86,32 +86,41 @@ int mm_init(void)
 {
   debugCounter = 0;
   debugCounter2 = 0;
-  void *setupPointer = mem_map(8 * mem_pagesize());
+  size_t setupAddr = mem_map(8 * mem_pagesize());
 
-  list_node *pageNode = (list_node *)setupPointer;              // Set up page pointer
+  list_node *pageNode = (list_node *)setupAddr;              // Set up page pointer
   pageNode->next = NULL;
   pageNode->prev = NULL;
   last_page = pageNode;
-  setupPointer += sizeof(list_node);
-
-                                                              // Set up epiloge pointer
-  void *epiloguePointer = setupPointer + ( 8 * mem_pagesize()) - sizeof(block_header) - sizeof(block_footer);
+  setupAddr += sizeof(list_node);
+  
+  // Set up prologue
+  block_header *prologueHeader = (block_header *)setupAddr;
+  GET_SIZE(prologueHeader) = 0x20;
+  GET_ALLOC(prologueHeader) = 0x1;
+  setupAddr += sizeof(block_header);
+  block_footer *prologueFooter = (block_footer *)setupAddr;
+  GET_SIZE(prologueFooter) = 0x20;
+  setupAddr += sizeof(block_footer);
+  
+  // Set up initial chunk
+  block_header *initialHeader = (block_header *)setupAddr;
+  GET_SIZE(initialHeader) = ((8 * mem_pagesize()) - (4 * ALIGNMENT));
+  GET_ALLOC(initialHeader) = 0x0;
+  setupAddr += sizeof(blockHeader);
+  list_node *fl_node = (list_node *)setupAddr;
+  fl_node->next = NULL;
+  fl_node->prev = NULL;
+  free_list = fl_node;
+  setupAddr = setupAddr + GET_SIZE(initialHeader) - sizeof(block_footer) - sizeof(list_node);
+  block_footer *initialFooter = (block_footer *)setupAddr;
+  GET_SIZE(initialFooter) = GET_SIZE(initialHeader);
+  setupAddr += sizeof(block_footer);
+  
+  // Set up epiloge pointer
+  block_header *epiloguePointer = (block_header *)setupAddr;
   GET_SIZE(epiloguePointer) = 0x0;
   GET_ALLOC(epiloguePointer) = 0x1;
-
-                                                              // Set up initial chunk
-  GET_SIZE(setupPointer) = (8 * mem_pagesize()) - sizeof(list_node) - sizeof(block_header);
-  GET_ALLOC(setupPointer) = 0x0;
-  void *footerPointer = setupPointer + GET_SIZE(setupPointer) - sizeof(block_footer);
-  GET_SIZE(footerPointer) = (8 * mem_pagesize()) - sizeof(list_node) - sizeof(block_header);
-
-                                                              // Set up prologue chunk
-  list_node *firstFreeNode = setupPointer + sizeof(block_header);
-  firstFreeNode->next = NULL;
-  firstFreeNode->prev = NULL;
-  free_list = firstFreeNode;
-  
-  void *prologue = mm_malloc(0);
 
   // mm_init sanity checker:
   //printf("pageNode is at %zu. prologue should be 32 above that: %zu. Free list should be 48 above that: %zu.", pageNode, prologue, free_list);
@@ -157,7 +166,7 @@ void *mm_malloc(size_t size)
   if (!foundFit)
   {
     //printf("no fit found. allocate more memory\n");
-    size_t actualNeededSize = PAGE_ALIGN(newSize + (5 * ALIGNMENT));
+    size_t actualNeededSize = PAGE_ALIGN(newSize + (4 * ALIGNMENT));
     size_t allocSize = MAX(PAGE_ALIGN(actualNeededSize), (8 * mem_pagesize()));
     allocSize = MAX(allocSize, lastAllocSize);
     lastAllocSize = allocSize;
@@ -176,18 +185,18 @@ void *mm_malloc(size_t size)
     // Set up prologue
     //printf("prologueHeader is at %zu\n", setupAddr);
     block_header *prologueHeader = (block_header *)setupAddr;
-    GET_SIZE(prologueHeader) = 0x30;
+    GET_SIZE(prologueHeader) = 0x20;
     GET_ALLOC(prologueHeader) = 0x1;
-    setupAddr += sizeof(block_header) + sizeof(list_node);
+    setupAddr += sizeof(block_header);
     //printf("prologueFooter is at %zu\n", setupAddr);
     block_footer *prologueFooter = (block_footer *)setupAddr;
-    GET_SIZE(prologueFooter) = 0x30;
+    GET_SIZE(prologueFooter) = 0x20;
     setupAddr += sizeof(block_footer);
 
     // Set up initial chunk
     //printf("initialHeader is at %zu\n", setupAddr);
     block_header *initialHeader = (block_header *)setupAddr;
-    GET_SIZE(initialHeader) = allocSize - (5 * ALIGNMENT);
+    GET_SIZE(initialHeader) = allocSize - (4 * ALIGNMENT);
     GET_ALLOC(initialHeader) = 0x0;
     setupAddr += sizeof(block_header);
     list_node *fl_node = (list_node *)setupAddr;
@@ -319,7 +328,7 @@ static void mm_coalesce(void *pp)
 	if (ptr_is_mapped(backAddr, ALIGNMENT))
 	{
 	  backAddr = backAddr - GET_SIZE(backAddr) + sizeof(block_footer);
-	  if (GET_ALLOC(backAddr) == 0)
+	  if (GET_ALLOC(backAddr) == 0 && GET_SIZE(backAddr) != 0x20)
 	    {
 		back_neighbor = (list_node *)PREV_BLKP(pp);
 		//printf("back_neighbor: %zu\n", back_neighbor);
