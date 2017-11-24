@@ -77,12 +77,15 @@ list_node *last_page = NULL;
 size_t lastAllocSize = 0;
 char debugBool = 0;
 int debugCounter = 0;
+int debugCounter2 = 0;
 
 /* 
  * mm_init - initialize the malloc package with 8 pages.
  */
 int mm_init(void)
 {
+  debugCounter = 0;
+  debugCounter2 = 0;
   void *setupPointer = mem_map(8 * mem_pagesize());
 
   list_node *pageNode = (list_node *)setupPointer;              // Set up page pointer
@@ -124,7 +127,7 @@ int mm_init(void)
 void *mm_malloc(size_t size)
 {
   //print_free_list();
-  //printf("%d\n", debugCounter++);
+  printf("malloc count: %d\n", debugCounter++);
   size_t needSize = MAX(size, sizeof(list_node));
   size_t newSize = ALIGN(needSize + OVERHEAD);
   size_t bestFit = -1;
@@ -154,10 +157,11 @@ void *mm_malloc(size_t size)
   if (!foundFit)
   {
     //printf("no fit found. allocate more memory\n");
-    size_t allocSize = MAX(PAGE_ALIGN(newSize), 8 * mem_pagesize());
+    size_t actualNeededSize = PAGE_ALIGN(newSize + (5 * ALIGNMENT));
+    size_t allocSize = MAX(PAGE_ALIGN(actualNeededSize), (8 * mem_pagesize()));
     allocSize = MAX(allocSize, lastAllocSize);
     lastAllocSize = allocSize;
-    size_t setupAddr = mem_map(allocSize);
+    size_t setupAddr = (size_t)mem_map(allocSize);
     //printf("setupAddr starts at %zu and goes to %zu\n",setupAddr, setupAddr + allocSize);
     
     // Set up page pointer
@@ -308,16 +312,23 @@ static void mm_coalesce(void *pp)
 {
 	list_node *back_neighbor = NULL;
 	size_t backAddr = HDRP(pp) - sizeof(block_footer);
+	//backAddr = backAddr - GET_SIZE(backAddr) + sizeof(block_footer);
 	list_node *fwrd_neighbor = NULL;
 	size_t fwrdAddr = FTRP(pp) + sizeof(block_footer);
   
-	if (ptr_is_mapped(backAddr, ALIGNMENT) && !GET_ALLOC(HDRP(backAddr)))
+	if (ptr_is_mapped(backAddr, ALIGNMENT))
 	{
+	  backAddr = backAddr - GET_SIZE(backAddr) + sizeof(block_footer);
+	  if (GET_ALLOC(backAddr) == 0)
+	    {
 		back_neighbor = (list_node *)PREV_BLKP(pp);
+		//printf("back_neighbor: %zu\n", back_neighbor);
+	    }
 	}
-	if (ptr_is_mapped(fwrdAddr, ALIGNMENT) && !GET_ALLOC(HDRP(backAddr)) && GET_SIZE(fwrdAddr) != 0 )
+	if (ptr_is_mapped(fwrdAddr, ALIGNMENT) && GET_ALLOC(fwrdAddr) == 0 && GET_SIZE(fwrdAddr) != 0 )
 	{
 		fwrd_neighbor = (list_node *)NEXT_BLKP(pp);
+		//printf("fwrd_neighbor: %zu\n", fwrd_neighbor);
 	}
 	
 	if (fwrd_neighbor != NULL)
@@ -348,12 +359,14 @@ static void mm_coalesce(void *pp)
 		if (fwrd_neighbor->prev != NULL)
 		{
 		  
-		  print_free_list();
-		  printf("fwrd_neighbor is at %zu. Its prev is %zu. Its next is %zu\n", fwrd_neighbor, fwrd_neighbor->prev, fwrd_neighbor->next);
+		  //print_free_list();
+		  //printf("fwrd_neighbor is at %zu. Its prev is %zu. Its next is %zu\n", fwrd_neighbor, fwrd_neighbor->prev, fwrd_neighbor->next);
 			fwrd_neighbor->prev->next = fwrd_neighbor->next;
 		}
 		if (fwrd_neighbor->next != NULL)
 		{
+		  printf("coalesce count: %d\n", debugCounter2++);
+		  print_free_list();
 			fwrd_neighbor->next->prev = fwrd_neighbor->prev;
 			if (fwrd_neighbor->prev == NULL)
 			{
