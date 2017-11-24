@@ -151,8 +151,8 @@ void *mm_malloc(size_t size)
   int freeCounter = 0;
   while(iterator != NULL)
   {
-    printf("free counter = %d\n", freeCounter++);
-    printf("%zu <-- prev <-- %zu --> next --> %zu\n", iterator->prev, iterator, iterator->next);
+    //printf("free counter = %d\n", freeCounter++);
+    //printf("%zu <-- prev <-- %zu --> next --> %zu\n", iterator->prev, iterator, iterator->next);
     size_t thisSize = GET_SIZE(HDRP(iterator));
     if (thisSize >= newSize)// && thisSize < bestFit)
     {
@@ -238,7 +238,7 @@ void *mm_malloc(size_t size)
   GET_SIZE(HDRP(p)) = newSize;                         // Set header information for the newly allocated block
   GET_ALLOC(HDRP(p)) = 0x1;                            // Set the allocated status
   GET_SIZE(FTRP(p)) = newSize;                         // Set the footer pointer memory to footer
-  printf("bestFit: %zu. newSize: %zu\n",bestFit, newSize);
+  //printf("bestFit: %zu. newSize: %zu\n",bestFit, newSize);
   
   if ((bestFit - newSize) >=  (sizeof(list_node) + OVERHEAD))  // If there's leftover memory
   {
@@ -266,7 +266,7 @@ void *mm_malloc(size_t size)
     }
     else
     {
-      printf("update ->next\n");
+      //printf("update ->next\n");
       replacement_chunk->next = NULL;
     }
 
@@ -278,7 +278,7 @@ void *mm_malloc(size_t size)
     }
     else
     {
-      printf("update ->prev\n");
+      //printf("update ->prev\n");
       replacement_chunk->prev = NULL;
       free_list = replacement_chunk;
     }
@@ -309,7 +309,7 @@ void *mm_malloc(size_t size)
     {
 	  //size_t actualNeededSize = PAGE_ALIGN(newSize + (4 * ALIGNMENT));
       //size_t allocSize = MAX(PAGE_ALIGN(actualNeededSize), (8 * mem_pagesize()));
-      allocSize = MAX((8*mem_pagesize()), lastAllocSize);
+      size_t allocSize = MAX((8*mem_pagesize()), lastAllocSize);
       lastAllocSize = allocSize;
       size_t setupAddr = (size_t)mem_map(allocSize);
       //printf("setupAddr starts at %zu and goes to %zu\n",setupAddr, setupAddr + allocSize);
@@ -373,7 +373,7 @@ void mm_free(void *ptr)
   */
 static void mm_coalesce(void *pp)
 {
-  printf("free count: %d\n", debugCounter2++);
+  //printf("free count: %d\n", debugCounter2++);
 	list_node *back_neighbor = NULL;
 	size_t backAddr = HDRP(pp) - sizeof(block_footer);
 	//backAddr = backAddr - GET_SIZE(backAddr) + sizeof(block_footer);
