@@ -107,7 +107,7 @@ int mm_init(void)
   block_header *initialHeader = (block_header *)setupAddr;
   GET_SIZE(initialHeader) = ((8 * mem_pagesize()) - (4 * ALIGNMENT));
   GET_ALLOC(initialHeader) = 0x0;
-  setupAddr += sizeof(blockHeader);
+  setupAddr += sizeof(block_header);
   list_node *fl_node = (list_node *)setupAddr;
   fl_node->next = NULL;
   fl_node->prev = NULL;
@@ -136,7 +136,7 @@ int mm_init(void)
 void *mm_malloc(size_t size)
 {
   //print_free_list();
-  printf("malloc count: %d\n", debugCounter++);
+  //printf("malloc count: %d\n", debugCounter++);
   size_t needSize = MAX(size, sizeof(list_node));
   size_t newSize = ALIGN(needSize + OVERHEAD);
   size_t bestFit = -1;
@@ -153,6 +153,7 @@ void *mm_malloc(size_t size)
     size_t thisSize = GET_SIZE(HDRP(iterator));
     if (thisSize >= newSize)// && thisSize < bestFit)
     {
+      printf("searching...\n");
       bestFit = thisSize;
       bestNode = iterator;
       foundFit = 1;
@@ -329,15 +330,21 @@ static void mm_coalesce(void *pp)
 	{
 	  backAddr = backAddr - GET_SIZE(backAddr) + sizeof(block_footer);
 	  if (GET_ALLOC(backAddr) == 0 && GET_SIZE(backAddr) != 0x20)
-	    {
-		back_neighbor = (list_node *)PREV_BLKP(pp);
-		//printf("back_neighbor: %zu\n", back_neighbor);
-	    }
+	  {
+	      backAddr += sizeof(block_header);
+	      back_neighbor = (list_node *)backAddr;
+	  }
 	}
-	if (ptr_is_mapped(fwrdAddr, ALIGNMENT) && GET_ALLOC(fwrdAddr) == 0 && GET_SIZE(fwrdAddr) != 0 )
+	if (ptr_is_mapped(fwrdAddr, OVERHEAD))
 	{
-		fwrd_neighbor = (list_node *)NEXT_BLKP(pp);
-		//printf("fwrd_neighbor: %zu\n", fwrd_neighbor);
+	  block_header *fwrdHeader = (block_header *)fwrdAddr;
+	  if (ptr_is_mapped(fwrdHeader, GET_SIZE(fwrdHeader)) && GET_ALLOC(fwrdHeader) == 0 && GET_SIZE(fwrdHeader) != 0)
+	  {
+	    fwrdAddr += sizeof(block_header);
+	    fwrd_neighbor = (list_node *)fwrdAddr;
+	    if (!ptr_is_mapped(fwrd_neighbor->next, ALIGNMENT) || !ptr_is_mapped(fwrd_neighbor->prev, ALIGNMENT))
+	      fwrd_neighbor = NULL;
+	  }
 	}
 	
 	if (fwrd_neighbor != NULL)
@@ -363,6 +370,13 @@ static void mm_coalesce(void *pp)
 		free_chunk->prev = NULL;
 		free_list = free_chunk;
 	}
+	//else
+	//{
+	//  list_node *free_chunk = (list_node *)pp;
+	//  free_chunk->next = NULL;
+	//  free_chunk->prev = NULL;
+	//}
+	
 	if (fwrd_neighbor != NULL)
 	{
 		if (fwrd_neighbor->prev != NULL)
@@ -374,8 +388,7 @@ static void mm_coalesce(void *pp)
 		}
 		if (fwrd_neighbor->next != NULL)
 		{
-		  printf("coalesce count: %d\n", debugCounter2++);
-		  print_free_list();
+		  //printf("coalesce count: %d\n", debugCounter2++);
 			fwrd_neighbor->next->prev = fwrd_neighbor->prev;
 			if (fwrd_neighbor->prev == NULL)
 			{
