@@ -307,7 +307,52 @@ void *mm_malloc(size_t size)
     }
     else if (old_node->next == NULL && old_node->prev == NULL)  // Node IS the free list
     {
-      
+	  //size_t actualNeededSize = PAGE_ALIGN(newSize + (4 * ALIGNMENT));
+      //size_t allocSize = MAX(PAGE_ALIGN(actualNeededSize), (8 * mem_pagesize()));
+      allocSize = MAX((8*mem_pagesize()), lastAllocSize);
+      lastAllocSize = allocSize;
+      size_t setupAddr = (size_t)mem_map(allocSize);
+      //printf("setupAddr starts at %zu and goes to %zu\n",setupAddr, setupAddr + allocSize);
+    
+      // Set up page pointer
+      //printf("pageNode is at %zu\n", setupAddr);
+      list_node *pageNode = (list_node *)setupAddr;
+      pageNode->prev = NULL;
+      pageNode->next = last_page;
+      pageNode->next->prev = pageNode;
+      last_page = pageNode;
+      setupAddr += sizeof(list_node);
+
+      // Set up prologue
+      //printf("prologueHeader is at %zu\n", setupAddr);
+      block_header *prologueHeader = (block_header *)setupAddr;
+      GET_SIZE(prologueHeader) = 0x20;
+      GET_ALLOC(prologueHeader) = 0x1;
+      setupAddr += sizeof(block_header);
+      //printf("prologueFooter is at %zu\n", setupAddr);
+      block_footer *prologueFooter = (block_footer *)setupAddr;
+      GET_SIZE(prologueFooter) = 0x20;
+      setupAddr += sizeof(block_footer);
+
+      // Set up initial chunk
+      //printf("initialHeader is at %zu\n", setupAddr);
+      block_header *initialHeader = (block_header *)setupAddr;
+      GET_SIZE(initialHeader) = allocSize - (4 * ALIGNMENT);
+      GET_ALLOC(initialHeader) = 0x0;
+      setupAddr += sizeof(block_header);
+      list_node *fl_node = (list_node *)setupAddr;
+      fl_node->next = NULL;
+      fl_node->prev = NULL;
+      free_list = fl_node;
+      setupAddr += GET_SIZE(initialHeader) - sizeof(block_footer) - sizeof(list_node);
+      block_footer *initialFooter = (block_footer *)setupAddr;
+      GET_SIZE(initialFooter) = allocSize - (5 * ALIGNMENT);
+      setupAddr += sizeof(block_footer);
+    
+      // Set up epiloge pointer
+      block_header *epiloguePointer = (block_header *)setupAddr;
+      GET_SIZE(epiloguePointer) = 0x0;
+      GET_ALLOC(epiloguePointer) = 0x1;
     }
   }
   
