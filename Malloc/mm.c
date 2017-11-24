@@ -148,12 +148,14 @@ void *mm_malloc(size_t size)
   list_node *iterator = free_list;
   //printf("before: ");
   //print_free_list();
+  int freeCounter = 0;
   while(iterator != NULL)
   {
+    printf("free counter = %d\n", freeCounter++);
+    printf("%zu <-- prev <-- %zu --> next --> %zu\n", iterator->prev, iterator, iterator->next);
     size_t thisSize = GET_SIZE(HDRP(iterator));
     if (thisSize >= newSize)// && thisSize < bestFit)
     {
-      printf("searching...\n");
       bestFit = thisSize;
       bestNode = iterator;
       foundFit = 1;
@@ -162,7 +164,6 @@ void *mm_malloc(size_t size)
     }
     iterator = iterator->next;
   }
-  //printf("the best node is: %zu\n", bestNode);
 
   if (!foundFit)
   {
@@ -237,15 +238,21 @@ void *mm_malloc(size_t size)
   GET_SIZE(HDRP(p)) = newSize;                         // Set header information for the newly allocated block
   GET_ALLOC(HDRP(p)) = 0x1;                            // Set the allocated status
   GET_SIZE(FTRP(p)) = newSize;                         // Set the footer pointer memory to footer
+  printf("bestFit: %zu. newSize: %zu\n",bestFit, newSize);
   
   if ((bestFit - newSize) >=  (sizeof(list_node) + OVERHEAD))  // If there's leftover memory
   {
+    
     // Set new header information
-    block_header *new_header = (block_header *)(FTRP(p) + sizeof(block_footer));
+    size_t setupAddr = FTRP(p) + sizeof(block_footer);
+    block_header *new_header = (block_header *)setupAddr;
     GET_SIZE(new_header) = bestFit - newSize;
     GET_ALLOC(new_header) = 0x0;
-    void *n = new_header + 1;
-    GET_SIZE(FTRP(n)) = bestFit - newSize;
+    setupAddr += sizeof(block_header);
+    void *n = (void *)setupAddr;
+    setupAddr += GET_SIZE(new_header) - OVERHEAD;
+    block_footer *new_footer = (block_footer *)setupAddr;
+    GET_SIZE(new_footer) = bestFit - newSize;
 
     // Update the free list
     list_node *allocated_chunk  = (list_node *)p;
@@ -259,6 +266,7 @@ void *mm_malloc(size_t size)
     }
     else
     {
+      printf("update ->next\n");
       replacement_chunk->next = NULL;
     }
 
@@ -270,10 +278,10 @@ void *mm_malloc(size_t size)
     }
     else
     {
+      printf("update ->prev\n");
       replacement_chunk->prev = NULL;
       free_list = replacement_chunk;
     }
-    
   }
   
   else                                                        // If there's no leftover memory
@@ -297,7 +305,7 @@ void *mm_malloc(size_t size)
       old_node->prev->next = NULL;
       old_node->prev = NULL;
     }
-    else if (old_node->next == NULL && old_node->prev == NULL)
+    else if (old_node->next == NULL && old_node->prev == NULL)  // Node IS the free list
     {
       
     }
@@ -320,6 +328,7 @@ void mm_free(void *ptr)
   */
 static void mm_coalesce(void *pp)
 {
+  printf("free count: %d\n", debugCounter2++);
 	list_node *back_neighbor = NULL;
 	size_t backAddr = HDRP(pp) - sizeof(block_footer);
 	//backAddr = backAddr - GET_SIZE(backAddr) + sizeof(block_footer);
@@ -342,7 +351,7 @@ static void mm_coalesce(void *pp)
 	  {
 	    fwrdAddr += sizeof(block_header);
 	    fwrd_neighbor = (list_node *)fwrdAddr;
-	    if (!ptr_is_mapped(fwrd_neighbor->next, ALIGNMENT) || !ptr_is_mapped(fwrd_neighbor->prev, ALIGNMENT))
+	    if ((!ptr_is_mapped(fwrd_neighbor->next, ALIGNMENT) && !ptr_is_mapped(fwrd_neighbor->prev, ALIGNMENT)) && free_list != fwrd_neighbor)
 	      fwrd_neighbor = NULL;
 	  }
 	}
