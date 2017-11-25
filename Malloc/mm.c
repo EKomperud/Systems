@@ -140,7 +140,7 @@ int mm_init(void)
  */
 void *mm_malloc(size_t size)
 {
-  //printf("malloc\n");
+  printf("malloc %zu\n", size);
   //print_free_list();
   //printf("malloc count: %d\n", debugCounter++);
   size_t needSize = MAX(size, sizeof(list_node));
@@ -261,7 +261,7 @@ void *mm_malloc(size_t size)
   
   if ((bestFit - newSize) >=  (sizeof(list_node) + OVERHEAD))  // If there's leftover memory
   {
-    
+    //printf("leftover memory\n");
     // Set new header information
     size_t setupAddr = FTRP(p) + sizeof(block_footer);
     block_header *new_header = (block_header *)setupAddr;
@@ -305,9 +305,11 @@ void *mm_malloc(size_t size)
   
   else                                                        // If there's no leftover memory
   {
+    printf("no leftovers\n");
     list_node *old_node = (list_node *)p;
     if (old_node->next != NULL && old_node->prev != NULL)     // Node is in the middle of free list
     {
+      printf("node was in the middle of the free list\n");
       old_node->prev->next = old_node->next;
       old_node->next->prev = old_node->prev;
       old_node->prev = NULL;
@@ -315,17 +317,23 @@ void *mm_malloc(size_t size)
     }
     else if (old_node->next != NULL && old_node->prev == NULL)  // Node is at the beginning of free list
     {
+      printf("node was the beginning of the free list\n");
+      print_free_list();
+      printf("old node = %zu. Is it the head of the free list? %d. What's it's ->next value? %zu\n", old_node, free_list = old_node, old_node->next);
       old_node->next->prev = NULL;
       free_list = old_node->next;
       old_node->next = NULL;
+      print_free_list();
     }
     else if (old_node->next == NULL && old_node->prev != NULL)  // Node is at the end of the free list
     {
+      printf("node was the end of the free list\n");
       old_node->prev->next = NULL;
       old_node->prev = NULL;
     }
     else if (old_node->next == NULL && old_node->prev == NULL)  // Node IS the free list
     {
+      printf("node was the free list\n");
       //printf("expand. no leftovers\n");
 	  //size_t actualNeededSize = PAGE_ALIGN(newSize + (4 * ALIGNMENT));
       //size_t allocSize = MAX(PAGE_ALIGN(actualNeededSize), (8 * mem_pagesize()));
@@ -386,7 +394,7 @@ void *mm_malloc(size_t size)
  */
 void mm_free(void *ptr)
 {
-  //printf("free\n");
+  printf("free\n");
   GET_ALLOC(HDRP(ptr)) = 0x0;
   mm_coalesce(ptr);
   //printf("did i at least make it here?\n");
@@ -612,8 +620,8 @@ int mm_check()
 	
 	printf("header_addr = %zu, size = %zu. footer_addr = %zu, size = %zu\n", chunk_iterator, block_size, footAddr, GET_SIZE(footAddr));
 	//printf("16 below the footer is size %zu. 16 above the footer is size %zu\n", GET_SIZE(footAddr - 16), GET_SIZE(footAddr + 16));
-	printf("header is allocated? %zu. footer is allocated? %zu.\n", block_alloc, GET_ALLOC(footAddr));
-	printf("is header in the free list? %d. Is footer in the free list? %d.\n", in_free_list(chunk_iterator),in_free_list(footAddr));
+	//printf("header is allocated? %zu. footer is allocated? %zu.\n", block_alloc, GET_ALLOC(footAddr));
+	//printf("is header in the free list? %d. Is footer in the free list? %d.\n", in_free_list(chunk_iterator),in_free_list(footAddr));
 	print_free_list();
         printf("inconsistent header/footers\n");
         return 0;
