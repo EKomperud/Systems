@@ -130,7 +130,8 @@ int mm_init(void)
   // mm_init sanity checker:
   //printf("pageNode is at %zu. prologue should be 32 above that: %zu. Free list should be 48 above that: %zu.", pageNode, prologue, free_list);
   //printf(" Epilogue should be 8*page_size - 16 after pageNode: %zu", epiloguePointer );
-  
+
+  //printf("freelist: %zu\n", free_list);
   return 0;
 }
 
@@ -140,7 +141,7 @@ int mm_init(void)
  */
 void *mm_malloc(size_t size)
 {
-  printf("malloc %zu\n", size);
+  //printf("malloc %zu\n", size);
   //print_free_list();
   //printf("malloc count: %d\n", debugCounter++);
   size_t needSize = MAX(size, sizeof(list_node));
@@ -254,15 +255,14 @@ void *mm_malloc(size_t size)
   }
 
   p = bestNode;
-  GET_SIZE(HDRP(p)) = newSize;                         // Set header information for the newly allocated block
-  GET_ALLOC(HDRP(p)) = 0x1;                            // Set the allocated status
-  GET_SIZE(FTRP(p)) = newSize;                         // Set the footer pointer memory to footer
-  //printf("bestFit: %zu. newSize: %zu\n",bestFit, newSize);
   
   if ((bestFit - newSize) >=  (sizeof(list_node) + OVERHEAD))  // If there's leftover memory
   {
     //printf("leftover memory\n");
     // Set new header information
+    GET_SIZE(HDRP(p)) = newSize;                         // Set header information for the newly allocated block
+    GET_ALLOC(HDRP(p)) = 0x1;                            // Set the allocated status
+    GET_SIZE(FTRP(p)) = newSize;                         // Set the footer pointer memory to footer
     size_t setupAddr = FTRP(p) + sizeof(block_footer);
     block_header *new_header = (block_header *)setupAddr;
     GET_SIZE(new_header) = bestFit - newSize;
@@ -305,11 +305,15 @@ void *mm_malloc(size_t size)
   
   else                                                        // If there's no leftover memory
   {
-    printf("no leftovers\n");
+    newSize = bestFit;
+    GET_SIZE(HDRP(p)) = newSize;                         // Set header information for the newly allocated block
+    GET_ALLOC(HDRP(p)) = 0x1;                            // Set the allocated status
+    GET_SIZE(FTRP(p)) = newSize;                         // Set the footer pointer memory to footer
+    //printf("no leftovers\n");
     list_node *old_node = (list_node *)p;
     if (old_node->next != NULL && old_node->prev != NULL)     // Node is in the middle of free list
     {
-      printf("node was in the middle of the free list\n");
+      //printf("node was in the middle of the free list\n");
       old_node->prev->next = old_node->next;
       old_node->next->prev = old_node->prev;
       old_node->prev = NULL;
@@ -317,29 +321,33 @@ void *mm_malloc(size_t size)
     }
     else if (old_node->next != NULL && old_node->prev == NULL)  // Node is at the beginning of free list
     {
-      printf("node was the beginning of the free list\n");
-      print_free_list();
-      printf("old node = %zu. Is it the head of the free list? %d. What's it's ->next value? %zu\n", old_node, free_list = old_node, old_node->next);
+      //printf("node was the beginning of the free list\n");
+      //print_free_list();
+      //printf("old node = %zu. Is it the head of the free list? %d. What's it's ->next value? %zu\n", old_node, free_list = old_node, old_node->next);
+      //printf("the newSize was %zu\n",newSize);
+      //printf("previous block: %zu(%zu). next block: %zu(%zu).\n",HDRP(PREV_BLKP(p)),GET_SIZE(HDRP(PREV_BLKP(p))),HDRP(NEXT_BLKP(p)),GET_SIZE(HDRP(NEXT_BLKP(p))));
       old_node->next->prev = NULL;
       free_list = old_node->next;
       old_node->next = NULL;
-      print_free_list();
+      //print_free_list();
     }
     else if (old_node->next == NULL && old_node->prev != NULL)  // Node is at the end of the free list
     {
-      printf("node was the end of the free list\n");
+      //printf("node was the end of the free list\n");
       old_node->prev->next = NULL;
       old_node->prev = NULL;
     }
     else if (old_node->next == NULL && old_node->prev == NULL)  // Node IS the free list
     {
-      printf("node was the free list\n");
+      //printf("node was the free list\n");
+      //printf("free list: %zu\n", free_list);
       //printf("expand. no leftovers\n");
 	  //size_t actualNeededSize = PAGE_ALIGN(newSize + (4 * ALIGNMENT));
       //size_t allocSize = MAX(PAGE_ALIGN(actualNeededSize), (8 * mem_pagesize()));
       size_t allocSize = MAX((8*mem_pagesize()), lastAllocSize);
       lastAllocSize = allocSize;
       size_t setupAddr = (size_t)mem_map(allocSize);
+      //printf("%zu\n", setupAddr);
       //printf("expand count: %zu\n", debugCounter2++);
       //printf("setupAddr starts at %zu and goes to %zu\n",setupAddr, setupAddr + allocSize);
     
@@ -375,7 +383,7 @@ void *mm_malloc(size_t size)
       free_list = fl_node;
       setupAddr += GET_SIZE(initialHeader) - sizeof(block_footer) - sizeof(list_node);
       block_footer *initialFooter = (block_footer *)setupAddr;
-      GET_SIZE(initialFooter) = allocSize - (5 * ALIGNMENT);
+      GET_SIZE(initialFooter) = allocSize - (4 * ALIGNMENT);
       setupAddr += sizeof(block_footer);
     
       // Set up epiloge pointer
@@ -385,6 +393,7 @@ void *mm_malloc(size_t size)
     }
   }
 
+  //printf("total Malloc'd: %d\n", debugCounter += newSize);
   GET_ALLOC((HDRP(p))) = 0x1;
   return p;
 }
@@ -394,7 +403,7 @@ void *mm_malloc(size_t size)
  */
 void mm_free(void *ptr)
 {
-  printf("free\n");
+  //printf("free\n");
   GET_ALLOC(HDRP(ptr)) = 0x0;
   mm_coalesce(ptr);
   //printf("did i at least make it here?\n");
@@ -638,18 +647,33 @@ int mm_check()
           printf("free block isn't in the free list\n");
           return 0;
         }
-	if (fl_node->next != NULL && !ptr_is_mapped(fl_node->next,ALIGNMENT))
+	if (fl_node->next != NULL)
 	  {
-	    print_free_list();
-	    printf("%zu --> next --> %zu\n", fl_node, fl_node->next);
-	    printf("is this shit even IN the free list? %d\n", in_free_list(fl_node));
-	    printf("pointer(fl->next) isn't mapped\n");
-	  return 0;
+	    if (!ptr_is_mapped(fl_node->next,ALIGNMENT))
+	    {
+	      printf("pointer(fl->next) isn't mapped\n");
+	      return 0;
+	    }
+	    //if (fl_node->next->prev != fl_node)
+	    if (!in_free_list(fl_node))
+		{
+		  printf("Node %zu isn't connected foward properly\n",fl_node);
+		  return 0;
+		}
 	  }
-	if (fl_node->prev != NULL && !ptr_is_mapped(fl_node->prev,ALIGNMENT))
+	if (fl_node->prev != NULL)
 	  {
-	    printf("pointer(fl->prev) isn't mapped\n");
-	  return 0;
+	    if (!ptr_is_mapped(fl_node->prev,ALIGNMENT))
+	      {
+	        printf("pointer(fl->prev) isn't mapped\n");
+	        return 0;
+	      }
+	    //if (fl_node->prev->next != fl_node)
+	    if (!in_free_list(fl_node))
+	      {
+		printf("Node %zu isn't connected back properly\n",fl_node);
+		return 0;
+	      }
 	  }
       }
       chunkAddr += GET_SIZE(chunk_iterator) - sizeof(block_header);
