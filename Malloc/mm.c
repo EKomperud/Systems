@@ -90,6 +90,7 @@ int mm_init(void)
   free_list = NULL;
   last_page = NULL;
   size_t setupAddr = mem_map(8 * mem_pagesize());
+      printf("expand count: %zu\n", debugCounter2++);
 
   list_node *pageNode = (list_node *)setupAddr;              // Set up page pointer
   pageNode->next = NULL;
@@ -172,7 +173,6 @@ void *mm_malloc(size_t size)
 
   if (!foundFit)
   {
-    printf("expand count: %zu\n", debugCounter2++);
     size_t actualNeededSize = PAGE_ALIGN(newSize + (4 * ALIGNMENT));
     size_t allocSize = MAX(PAGE_ALIGN(actualNeededSize), (8 * mem_pagesize()));
     allocSize = MAX(allocSize, lastAllocSize);
@@ -187,6 +187,7 @@ void *mm_malloc(size_t size)
     }
     
     size_t setupAddr = (size_t)mem_map(allocSize);
+	    printf("expand count: %zu\n", debugCounter2++);
     //printf("setupAddr starts at %zu and goes to %zu\n",setupAddr, setupAddr + allocSize);
     
     // Set up page pointer
@@ -326,6 +327,7 @@ void *mm_malloc(size_t size)
       size_t allocSize = MAX((8*mem_pagesize()), lastAllocSize);
       lastAllocSize = allocSize;
       size_t setupAddr = (size_t)mem_map(allocSize);
+	      printf("expand count: %zu\n", debugCounter2++);
       //printf("setupAddr starts at %zu and goes to %zu\n",setupAddr, setupAddr + allocSize);
     
       // Set up page pointer
