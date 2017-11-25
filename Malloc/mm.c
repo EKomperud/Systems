@@ -70,6 +70,7 @@
 static void mm_coalesce(void *pp);
 static int ptr_is_mapped(void *p, size_t len);
 static void print_free_list();
+static int in_free_list(void* pp);
 static void print_mapped_pages();
 
 list_node *free_list = NULL;
@@ -84,7 +85,7 @@ int debugCounter2 = 0;
  */
 int mm_init(void)
 {
-  //debugCounter = 0;
+  debugCounter = 0;
   debugCounter2 = 0;
   lastAllocSize = (8 * mem_pagesize());
   free_list = NULL;
@@ -139,6 +140,7 @@ int mm_init(void)
  */
 void *mm_malloc(size_t size)
 {
+  //printf("malloc\n");
   //print_free_list();
   //printf("malloc count: %d\n", debugCounter++);
   size_t needSize = MAX(size, sizeof(list_node));
@@ -173,6 +175,7 @@ void *mm_malloc(size_t size)
 
   if (!foundFit)
   {
+    //printf("expand. no fit\n");
     size_t actualNeededSize = PAGE_ALIGN(newSize + (4 * ALIGNMENT));
     size_t allocSize = MAX(PAGE_ALIGN(actualNeededSize), (8 * mem_pagesize()));
     
@@ -323,6 +326,7 @@ void *mm_malloc(size_t size)
     }
     else if (old_node->next == NULL && old_node->prev == NULL)  // Node IS the free list
     {
+      //printf("expand. no leftovers\n");
 	  //size_t actualNeededSize = PAGE_ALIGN(newSize + (4 * ALIGNMENT));
       //size_t allocSize = MAX(PAGE_ALIGN(actualNeededSize), (8 * mem_pagesize()));
       size_t allocSize = MAX((8*mem_pagesize()), lastAllocSize);
@@ -382,8 +386,10 @@ void *mm_malloc(size_t size)
  */
 void mm_free(void *ptr)
 {
+  //printf("free\n");
   GET_ALLOC(HDRP(ptr)) = 0x0;
   mm_coalesce(ptr);
+  //printf("did i at least make it here?\n");
 }
 
 /*
@@ -418,15 +424,24 @@ static void mm_coalesce(void *pp)
 	      fwrd_neighbor = NULL;
 	  }
 	}
+
+	if (fwrd_neighbor == NULL && back_neighbor == NULL)
+	  {
+	    // make sure b isn't in fl, then just wait until we're done
+	    if (in_free_list(freeing))
+	      printf("shit's fucked. Case 1. Beginning\n");
+	  }
 	
 	if (fwrd_neighbor != NULL)
 	{
+	  //printf("fwrd_n not null\n");
 		size_t old_size = GET_SIZE(HDRP(pp));
 		GET_SIZE(HDRP(pp)) += GET_SIZE(HDRP(fwrd_neighbor));
 		GET_SIZE(FTRP(pp)) += old_size;		
 	}
 	if (back_neighbor != NULL)
 	{
+	  //printf("back_n not null\n");
 		size_t old_size = GET_SIZE(HDRP(back_neighbor));		
 		GET_SIZE(HDRP(back_neighbor)) += GET_SIZE(HDRP(pp));
 		GET_SIZE(FTRP(back_neighbor)) += old_size;
@@ -434,6 +449,7 @@ static void mm_coalesce(void *pp)
 	
 	if (back_neighbor == NULL)
 	{
+	  //printf("back_neighbor == NULL\n");
 	        list_node *free_chunk = (list_node *)pp;
 		list_node *fl_head = free_list;
 		
@@ -465,6 +481,11 @@ static void mm_coalesce(void *pp)
 		fwrd_neighbor->prev = NULL;
 		fwrd_neighbor->next = NULL;
 	}
+
+	//if (back_neighbor != NULL)
+	//printf("back_neighbor should be in. Is it? %d. pp should not. Is pp in? %d\n",in_free_list(back_neighbor),in_free_list(pp));
+	//else
+	//printf("back_neighbor should not be in. Is it? %d. pp should. Is pp in? %d\n",in_free_list(back_neighbor),in_free_list(pp));
 }
 
 static int ptr_is_mapped(void *p, size_t len) {
@@ -478,7 +499,7 @@ static int ptr_is_mapped(void *p, size_t len) {
  */
 int mm_check()
 {
-  //printf("doing a check..\n");
+  //printf("check\n");
   list_node *page_iterator = last_page;
   size_t pageAddr = (size_t *)last_page;
   do
@@ -525,14 +546,25 @@ int mm_check()
       }
       prev_alloc = block_alloc;
       size_t footAddr = chunkAddr + GET_SIZE(chunk_iterator) - sizeof(block_footer);
+      
       if (GET_SIZE(footAddr) != block_size)
       {
+	
+	printf("header_addr = %zu, size = %zu. footer_addr = %zu, size = %zu\n", chunk_iterator, block_size, footAddr, GET_SIZE(footAddr));
+	//printf("16 below the footer is size %zu. 16 above the footer is size %zu\n", GET_SIZE(footAddr - 16), GET_SIZE(footAddr + 16));
+	printf("header is allocated? %zu. footer is allocated? %zu.\n", block_alloc, GET_ALLOC(footAddr));
+	printf("is header in the free list? %d. Is footer in the free list? %d.\n", in_free_list(chunk_iterator),in_free_list(footAddr));
+	print_free_list();
         printf("inconsistent header/footers\n");
         return 0;
       }
+      chunkAddr += sizeof(block_header);
+      //if (chunkAddr == 118472768)
+      //printf("debugging this shit\n");
       if (!block_alloc)
       {
-        list_node *fl_node = (list_node *)chunk_iterator;
+	//print_free_list();
+        list_node *fl_node = (list_node *)chunkAddr;
         if ((fl_node->next == NULL && fl_node->prev == NULL) && free_list != fl_node)
         {
           printf("free block isn't in the free list\n");
@@ -540,7 +572,9 @@ int mm_check()
         }
 	if (fl_node->next != NULL && !ptr_is_mapped(fl_node->next,ALIGNMENT))
 	  {
-	    printf("%zu --> next --> %zu\n", chunk_iterator, fl_node->next);
+	    print_free_list();
+	    printf("%zu --> next --> %zu\n", fl_node, fl_node->next);
+	    printf("is this shit even IN the free list? %d\n", in_free_list(fl_node));
 	    printf("pointer(fl->next) isn't mapped\n");
 	  return 0;
 	  }
@@ -550,11 +584,13 @@ int mm_check()
 	  return 0;
 	  }
       }
-      chunkAddr += GET_SIZE(chunk_iterator);
+      chunkAddr += GET_SIZE(chunk_iterator) - sizeof(block_header);
 
-    } while (ptr_is_mapped(chunkAddr, GET_SIZE(chunkAddr)) && GET_SIZE(chunkAddr) != 0);
+    } while (ptr_is_mapped(chunkAddr, ALIGNMENT) && GET_SIZE(chunkAddr) != 0);
 
     page_iterator = last_page->prev;
+    //if (page_iterator != NULL)
+    //printf("had to check multiple pages\n");
   } while (page_iterator != NULL);
   return 1;
 }
@@ -578,6 +614,19 @@ static void print_free_list()
       iterator = iterator->next;
     }
   printf("END\n");
+}
+
+static int in_free_list(void* pp)
+{
+  list_node *match = (list_node *)pp;
+  list_node *iterator = free_list;
+  while (iterator != NULL)
+    {
+      if (pp == iterator)
+	return 1;
+      iterator = iterator->next;
+    }
+  return 0;
 }
 
 static void print_mapped_pages()
