@@ -84,8 +84,11 @@ int debugCounter2 = 0;
  */
 int mm_init(void)
 {
-  debugCounter = 0;
+  //debugCounter = 0;
   debugCounter2 = 0;
+  lastAllocSize = (8 * mem_pagesize());
+  free_list = NULL;
+  last_page = NULL;
   size_t setupAddr = mem_map(8 * mem_pagesize());
 
   list_node *pageNode = (list_node *)setupAddr;              // Set up page pointer
@@ -136,7 +139,7 @@ int mm_init(void)
 void *mm_malloc(size_t size)
 {
   //print_free_list();
-  //printf("malloc count: %d\n", debugCounter++);
+  printf("malloc count: %d\n", debugCounter++);
   size_t needSize = MAX(size, sizeof(list_node));
   size_t newSize = ALIGN(needSize + OVERHEAD);
   size_t bestFit = -1;
@@ -149,11 +152,13 @@ void *mm_malloc(size_t size)
   //printf("before: ");
   //print_free_list();
   int freeCounter = 0;
+  //print_free_list();
   while(iterator != NULL)
   {
     //printf("free counter = %d\n", freeCounter++);
     //printf("%zu <-- prev <-- %zu --> next --> %zu\n", iterator->prev, iterator, iterator->next);
     size_t thisSize = GET_SIZE(HDRP(iterator));
+    //printf("thisSize:%zu vs newSize:%zu\n",thisSize,newSize);
     if (thisSize >= newSize)// && thisSize < bestFit)
     {
       bestFit = thisSize;
@@ -167,11 +172,20 @@ void *mm_malloc(size_t size)
 
   if (!foundFit)
   {
-    //printf("no fit found. allocate more memory\n");
+    printf("expand count: %zu\n", debugCounter2++);
     size_t actualNeededSize = PAGE_ALIGN(newSize + (4 * ALIGNMENT));
     size_t allocSize = MAX(PAGE_ALIGN(actualNeededSize), (8 * mem_pagesize()));
     allocSize = MAX(allocSize, lastAllocSize);
-    lastAllocSize = allocSize;
+    //printf("no fit found. allocate more memory of size %zu\n", allocSize);
+    //printf("malloc count: %d\n", debugCounter++);
+    if(allocSize >= (lastAllocSize >> 2))
+      {
+	lastAllocSize = allocSize * 2;
+      }
+    else {
+      lastAllocSize = allocSize;
+    }
+    
     size_t setupAddr = (size_t)mem_map(allocSize);
     //printf("setupAddr starts at %zu and goes to %zu\n",setupAddr, setupAddr + allocSize);
     
@@ -469,29 +483,31 @@ int mm_check()
   list_node *page_iterator = last_page;
   do
   {
-    block_header *chunk_iterator = (block_header *)last_page + 2;
+    size_t chunkAddr = last_page + sizeof(list_node);
+    block_header *chunk_iterator = (block_header *)chunkAddr;
 
     // check prologue information
-    if (GET_SIZE(HDRP(chunk_iterator)) != 0x30 || GET_ALLOC(HDRP(chunk_iterator)) != 0x1 || GET_SIZE(FTRP(chunk_iterator)) != 0x30)
+    if (GET_SIZE(HDRP(chunk_iterator)) != 0x20 || GET_ALLOC(HDRP(chunk_iterator)) != 0x1 || GET_SIZE(FTRP(chunk_iterator)) != 0x20)
     {
       printf("prologue is broken\n");
       return 0;
     }
 
     char prev_alloc = 1;
-
+    chunkAddr += OVERHEAD;
     do
     {
-      chunk_iterator += GET_SIZE(HDRP(chunk_iterator)) / ALIGNMENT;
-      size_t block_size = GET_SIZE(HDRP(chunk_iterator));
-      char block_alloc  = GET_ALLOC(HDRP(chunk_iterator));
+      chunk_iterator = (block_header *)chunkAddr;
+      size_t block_size = GET_SIZE(chunk_iterator);
+      char block_alloc  = GET_ALLOC(chunk_iterator);
       if (!block_alloc && !prev_alloc)
       {
         printf("failed coalesce\n");
         return 0;
       }
       prev_alloc = block_alloc;
-      if (GET_SIZE(FTRP(chunk_iterator)) != block_size)
+      size_t footAddr = chunkAddr + GET_SIZE(chunk_iterator) - sizeof(block_footer);
+      if (GET_SIZE(footAddr) != block_size)
       {
         printf("inconsistent header/footers\n");
         return 0;
@@ -505,8 +521,9 @@ int mm_check()
           return 0;
         }
       }
+      chunkAddr += GET_SIZE(chunk_iterator);
 
-    } while (ptr_is_mapped(NEXT_BLKP(chunk_iterator), ALIGNMENT));
+    } while (ptr_is_mapped(chunkAddr, GET_SIZE(chunkAddr)) && GET_SIZE(chunkAddr) != 0);
 
     page_iterator = last_page->prev;
   } while (page_iterator != NULL);
