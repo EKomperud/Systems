@@ -431,6 +431,33 @@ static void mm_coalesce(void *pp)
 	    if (in_free_list(freeing))
 	      printf("shit's fucked. Case 1. Beginning\n");
 	  }
+	if (fwrd_neighbor == NULL && back_neighbor != NULL)
+	  {
+	    // make sure a is in fl, and that b isn't.
+	    if (in_free_list(freeing))
+	      printf("shit's fucked. Case 2. Beginning. b is in free list\n");
+		if (!in_free_list(back_neighbor))
+		  printf("shit's fucked. Case 2. Beginning. a isn't in free list\n");
+	  }
+	if (fwrd_neighbor != NULL && back_neighbor == NULL)
+	  {
+	    // make sure c is in fl, and that b isn't.
+	    if (in_free_list(freeing))
+	      printf("shit's fucked. Case 3. Beginning. b is in free list\n");
+		if (!in_free_list(fwrd_neighbor))
+		  printf("shit's fucked. Case 3. Beginning. c isn't in free list\n");
+	  }
+	if (fwrd_neighbor != NULL && back_neighbor != NULL)
+	  {
+	    // make sure a is in fl, c is in fl, and that b isn't.
+	    if (in_free_list(freeing))
+	      printf("shit's fucked. Case 4. Beginning. b is in free list\n");
+		if (!in_free_list(back_neighbor))
+		  printf("shit's fucked. Case 4. Beginning. a isn't in free list\n");
+	    if (!in_free_list(fwrd_neighbor))
+		  printf("shit's fucked. Case 4. Beginning. c isn't in free list\n");
+	  }  
+	  
 	
 	if (fwrd_neighbor != NULL)
 	{
@@ -481,6 +508,39 @@ static void mm_coalesce(void *pp)
 		fwrd_neighbor->prev = NULL;
 		fwrd_neighbor->next = NULL;
 	}
+	
+	if (fwrd_neighbor == NULL && back_neighbor == NULL)
+	  {
+	    // make sure b isn't in fl, then just wait until we're done
+	    if (!in_free_list(freeing))
+	      printf("shit's fucked. Case 1. End. b wasn't added to the free list\n");
+	  }
+	if (fwrd_neighbor == NULL && back_neighbor != NULL)
+	  {
+	    // make sure a is in fl, and that b isn't.
+	    if (in_free_list(freeing))
+	      printf("shit's fucked. Case 2. End. b is in free list when it shouldn't have been added\n");
+		if (!in_free_list(back_neighbor))
+		  printf("shit's fucked. Case 2. End. a isn't in free list\n");
+	  }
+	if (fwrd_neighbor != NULL && back_neighbor == NULL)
+	  {
+	    // make sure c is in fl, and that b isn't.
+	    if (!in_free_list(freeing))
+	      printf("shit's fucked. Case 3. End. b isn't free list when it should've coalesced c\n");
+		if (in_free_list(fwrd_neighbor))
+		  printf("shit's fucked. Case 3. End. c is in free list when it should've been coalesced\n");
+	  }
+	if (fwrd_neighbor != NULL && back_neighbor != NULL)
+	  {
+	    // make sure a is in fl, c is in fl, and that b isn't.
+	    if (in_free_list(freeing))
+	      printf("shit's fucked. Case 4. End. b is in free list\n");
+		if (!in_free_list(back_neighbor))
+		  printf("shit's fucked. Case 4. End. a isn't in free list\n");
+	    if (in_free_list(fwrd_neighbor))
+		  printf("shit's fucked. Case 4. End. c is in free list\n");
+	  } 
 
 	//if (back_neighbor != NULL)
 	//printf("back_neighbor should be in. Is it? %d. pp should not. Is pp in? %d\n",in_free_list(back_neighbor),in_free_list(pp));
