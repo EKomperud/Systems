@@ -85,6 +85,27 @@ int debugCounter2 = 0;
  */
 int mm_init(void)
 {
+  //printf("init\n");
+  while (mem_is_mapped(last_page,mem_pagesize()))
+    {
+      printf("address of last_page: %zu\n",last_page);
+      size_t pageAlignTracker = (size_t *)last_page;
+      //list_node *firstChunk = (list_node *)pageAlignTracker;
+      pageAlignTracker += mem_pagesize();
+      void *page = (void *)pageAlignTracker;
+      printf("address of page: %zu\n",page);
+      while (mem_is_mapped(page, mem_pagesize()))
+	{
+	  mem_unmap(page, mem_pagesize());
+	  pageAlignTracker += mem_pagesize();
+	  page = (void *)pageAlignTracker;
+	  printf("address of page %zu\n",page);
+	}
+      //printf("address of last_page: %zu\n",last_page);
+      last_page = last_page->prev;
+      //printf("should match ^^^^^^^: %zu\n",last_page->next);
+      mem_unmap(last_page->next, mem_pagesize());
+    }
   debugCounter = 0;
   debugCounter2 = 0;
   lastAllocSize = (8 * mem_pagesize());
@@ -165,6 +186,10 @@ void *mm_malloc(size_t size)
     //printf("thisSize:%zu vs newSize:%zu\n",thisSize,newSize);
     if (thisSize >= newSize)// && thisSize < bestFit)
     {
+      if (thisSize > 200000000000000)
+	{
+	  print_free_list();
+	}
       bestFit = thisSize;
       bestNode = iterator;
       foundFit = 1;
@@ -271,6 +296,15 @@ void *mm_malloc(size_t size)
     void *n = (void *)setupAddr;
     setupAddr += GET_SIZE(new_header) - OVERHEAD;
     block_footer *new_footer = (block_footer *)setupAddr;
+    
+    //if (!mm_check())
+    //return 0;
+    if (!ptr_is_mapped(new_footer, ALIGNMENT))
+      {
+	printf("%zu(h) --> %zu --> %zu(f)\n", new_header, GET_SIZE(new_header), new_footer);
+	printf("header alloc: %zu\n", GET_ALLOC(new_header));
+	printf("bestFit: %zu. newSize: %zu.\n",bestFit,newSize);
+      }
     GET_SIZE(new_footer) = bestFit - newSize;
 
     // Update the free list
@@ -414,6 +448,7 @@ void mm_free(void *ptr)
   */
 static void mm_coalesce(void *pp)
 {
+  //printf("freeing %zu\n",pp);
   //printf("free count: %d\n", debugCounter2++);
   list_node *freeing = (list_node *)pp;
 	list_node *back_neighbor = NULL;
@@ -424,7 +459,7 @@ static void mm_coalesce(void *pp)
 	if (ptr_is_mapped(backAddr, ALIGNMENT))
 	{
 	  backAddr = backAddr - GET_SIZE(backAddr) + sizeof(block_footer);
-	  if (GET_ALLOC(backAddr) == 0 && GET_SIZE(backAddr) != 0x20)
+	  if (GET_ALLOC(backAddr) == 0 && GET_SIZE(backAddr) > 0x20)
 	  {
 	      backAddr += sizeof(block_header);
 	      back_neighbor = (list_node *)backAddr;
@@ -441,41 +476,7 @@ static void mm_coalesce(void *pp)
 	      fwrd_neighbor = NULL;
 	  }
 	}
-
-	if (fwrd_neighbor == NULL && back_neighbor == NULL)
-	  {
-	    // make sure b isn't in fl, then just wait until we're done
-	    if (in_free_list(freeing))
-	      printf("shit's fucked. Case 1. Beginning\n");
-	  }
-	if (fwrd_neighbor == NULL && back_neighbor != NULL)
-	  {
-	    // make sure a is in fl, and that b isn't.
-	    if (in_free_list(freeing))
-	      printf("shit's fucked. Case 2. Beginning. b is in free list\n");
-		if (!in_free_list(back_neighbor))
-		  printf("shit's fucked. Case 2. Beginning. a isn't in free list\n");
-	  }
-	if (fwrd_neighbor != NULL && back_neighbor == NULL)
-	  {
-	    // make sure c is in fl, and that b isn't.
-	    if (in_free_list(freeing))
-	      printf("shit's fucked. Case 3. Beginning. b is in free list\n");
-		if (!in_free_list(fwrd_neighbor))
-		  printf("shit's fucked. Case 3. Beginning. c isn't in free list\n");
-	  }
-	if (fwrd_neighbor != NULL && back_neighbor != NULL)
-	  {
-	    // make sure a is in fl, c is in fl, and that b isn't.
-	    if (in_free_list(freeing))
-	      printf("shit's fucked. Case 4. Beginning. b is in free list\n");
-		if (!in_free_list(back_neighbor))
-		  printf("shit's fucked. Case 4. Beginning. a isn't in free list\n");
-	    if (!in_free_list(fwrd_neighbor))
-		  printf("shit's fucked. Case 4. Beginning. c isn't in free list\n");
-	  }  
-	  
-	
+		
 	if (fwrd_neighbor != NULL)
 	{
 	  //printf("fwrd_n not null\n");
@@ -525,40 +526,7 @@ static void mm_coalesce(void *pp)
 		fwrd_neighbor->prev = NULL;
 		fwrd_neighbor->next = NULL;
 	}
-	
-	if (fwrd_neighbor == NULL && back_neighbor == NULL)
-	  {
-	    // make sure b isn't in fl, then just wait until we're done
-	    if (!in_free_list(freeing))
-	      printf("shit's fucked. Case 1. End. b wasn't added to the free list\n");
-	  }
-	if (fwrd_neighbor == NULL && back_neighbor != NULL)
-	  {
-	    // make sure a is in fl, and that b isn't.
-	    if (in_free_list(freeing))
-	      printf("shit's fucked. Case 2. End. b is in free list when it shouldn't have been added\n");
-		if (!in_free_list(back_neighbor))
-		  printf("shit's fucked. Case 2. End. a isn't in free list\n");
-	  }
-	if (fwrd_neighbor != NULL && back_neighbor == NULL)
-	  {
-	    // make sure c is in fl, and that b isn't.
-	    if (!in_free_list(freeing))
-	      printf("shit's fucked. Case 3. End. b isn't free list when it should've coalesced c\n");
-		if (in_free_list(fwrd_neighbor))
-		  printf("shit's fucked. Case 3. End. c is in free list when it should've been coalesced\n");
-	  }
-	if (fwrd_neighbor != NULL && back_neighbor != NULL)
-	  {
-	    // make sure a is in fl, c is in fl, and that b isn't.
-	    if (in_free_list(freeing))
-	      printf("shit's fucked. Case 4. End. b is in free list\n");
-		if (!in_free_list(back_neighbor))
-		  printf("shit's fucked. Case 4. End. a isn't in free list\n");
-	    if (in_free_list(fwrd_neighbor))
-		  printf("shit's fucked. Case 4. End. c is in free list\n");
-	  } 
-
+		
 	//if (back_neighbor != NULL)
 	//printf("back_neighbor should be in. Is it? %d. pp should not. Is pp in? %d\n",in_free_list(back_neighbor),in_free_list(pp));
 	//else
@@ -576,30 +544,32 @@ static int ptr_is_mapped(void *p, size_t len) {
  */
 int mm_check()
 {
-  //printf("check\n");
+  //printf("UNALLOCATED BLOCKS --> ");
   list_node *page_iterator = last_page;
   size_t pageAddr = (size_t *)last_page;
   do
   {
+    //printf("doing a check on a page\n");
+    size_t pageSize = 64;
     size_t chunkAddr = pageAddr + sizeof(list_node);
     block_header *prologueHeader = (block_header *)chunkAddr;
     if (!ptr_is_mapped(prologueHeader, ALIGNMENT))
       {
-	printf("pointer(prologueHeader) isn't mapped\n");
+	//printf("pointer(prologueHeader) isn't mapped\n");
 	return 0;
       }
     chunkAddr += sizeof(block_header);
     block_footer *prologueFooter = (block_footer *)chunkAddr;
     if (!ptr_is_mapped(prologueFooter, ALIGNMENT))
       {
-	printf("pointer(prologueFooter) isn't mapped\n");
+	//printf("pointer(prologueFooter) isn't mapped\n");
 	return 0;
       }
 
     // check prologue information
     if (GET_SIZE(prologueHeader) != 0x20 || GET_ALLOC(prologueHeader) != 0x1 || GET_SIZE(prologueFooter) != 0x20)
     {
-      printf("prologue is broken\n");
+      //printf("prologue is broken\n");
       return 0;
     }
 
@@ -610,15 +580,16 @@ int mm_check()
     {
       chunk_iterator = (block_header *)chunkAddr;
       size_t block_size = GET_SIZE(chunk_iterator);
+      pageSize += block_size;
       char block_alloc  = GET_ALLOC(chunk_iterator);
       if (!ptr_is_mapped(chunk_iterator,block_size))
 	{
-	  printf("pointer(chunk_iterator) isn't mapped\n");
+	  //printf("pointer(chunk_iterator) isn't mapped\n");
 	return 0;
 	}
       if (!block_alloc && !prev_alloc)
       {
-        printf("failed coalesce\n");
+        //printf("failed coalesce\n");
         return 0;
       }
       prev_alloc = block_alloc;
@@ -626,64 +597,81 @@ int mm_check()
       
       if (GET_SIZE(footAddr) != block_size)
       {
-	
-	printf("header_addr = %zu, size = %zu. footer_addr = %zu, size = %zu\n", chunk_iterator, block_size, footAddr, GET_SIZE(footAddr));
-	//printf("16 below the footer is size %zu. 16 above the footer is size %zu\n", GET_SIZE(footAddr - 16), GET_SIZE(footAddr + 16));
-	//printf("header is allocated? %zu. footer is allocated? %zu.\n", block_alloc, GET_ALLOC(footAddr));
-	//printf("is header in the free list? %d. Is footer in the free list? %d.\n", in_free_list(chunk_iterator),in_free_list(footAddr));
-	print_free_list();
-        printf("inconsistent header/footers\n");
+        //printf("inconsistent header/footers\n");
         return 0;
       }
       chunkAddr += sizeof(block_header);
-      //if (chunkAddr == 118472768)
-      //printf("debugging this shit\n");
       if (!block_alloc)
       {
-	//print_free_list();
         list_node *fl_node = (list_node *)chunkAddr;
         if ((fl_node->next == NULL && fl_node->prev == NULL) && free_list != fl_node)
         {
-          printf("free block isn't in the free list\n");
+          //printf("free block isn't in the free list\n");
           return 0;
         }
+	// TODO: make this more efficient
+	//if (!in_free_list(fl_node))
+	//{
+	//  printf("Free node isn't in the free list\n");
+	//  return 0;
+	//}
 	if (fl_node->next != NULL)
 	  {
 	    if (!ptr_is_mapped(fl_node->next,ALIGNMENT))
 	    {
-	      printf("pointer(fl->next) isn't mapped\n");
+	      //printf("pointer(fl->next) isn't mapped\n");
 	      return 0;
 	    }
 	    //if (fl_node->next->prev != fl_node)
-	    if (!in_free_list(fl_node))
-		{
-		  printf("Node %zu isn't connected foward properly\n",fl_node);
-		  return 0;
-		}
+	    //if (!in_free_list(fl_node))
+	    //	{
+	    //	  printf("Node %zu isn't connected foward properly\n",fl_node);
+	    //	  return 0;
+	    //	}
 	  }
 	if (fl_node->prev != NULL)
 	  {
 	    if (!ptr_is_mapped(fl_node->prev,ALIGNMENT))
 	      {
-	        printf("pointer(fl->prev) isn't mapped\n");
+	        //printf("pointer(fl->prev) isn't mapped\n");
 	        return 0;
 	      }
 	    //if (fl_node->prev->next != fl_node)
-	    if (!in_free_list(fl_node))
-	      {
-		printf("Node %zu isn't connected back properly\n",fl_node);
-		return 0;
-	      }
+	    //if (!in_free_list(fl_node))
+	    //  {
+	    //printf("Node %zu isn't connected back properly\n",fl_node);
+	    //return 0;
+	    //}
 	  }
       }
       chunkAddr += GET_SIZE(chunk_iterator) - sizeof(block_header);
 
-    } while (ptr_is_mapped(chunkAddr, ALIGNMENT) && GET_SIZE(chunkAddr) != 0);
-
+    } while (ptr_is_mapped(chunkAddr, OVERHEAD) && GET_SIZE(chunkAddr) != 0);
+    if (pageSize % 4096 != 0)
+      {
+	//printf("header/footer sizes are inconsistent\n");
+	return 0;
+      }
     page_iterator = last_page->prev;
-    //if (page_iterator != NULL)
-    //printf("had to check multiple pages\n");
-  } while (page_iterator != NULL);
+    if ( (size_t)page_iterator % 4096 != 0 )
+      return 0;
+  } while (page_iterator != NULL && mem_is_mapped(page_iterator,mem_pagesize()));
+
+  //Check the free list:
+  list_node *fli = free_list;
+  while (fli != NULL)
+    {
+      if (!ptr_is_mapped(fli, ALIGNMENT))
+	return 0;
+      block_header *flh = HDRP(fli);
+      block_footer *flf = FTRP(fli);
+      if (!ptr_is_mapped(flh, GET_SIZE(flh)))
+	return 0;
+      if (GET_SIZE(flh) != GET_SIZE(flf))
+	return 0;
+      fli = fli->next;
+    }
+  
   return 1;
 }
 
@@ -693,7 +681,19 @@ int mm_check()
  */
 int mm_can_free(void *p)
 {
-  return GET_ALLOC(HDRP(p));
+  block_header *header = HDRP(p);
+  block_footer *footer = FTRP(p);
+  if (!ptr_is_mapped(header,ALIGNMENT) || !ptr_is_mapped(footer,ALIGNMENT))
+    return 0;
+  if (GET_SIZE(header) != GET_SIZE(footer))
+    return 0;
+  block_header *prev_header = HDRP(PREV_BLKP(p));
+  block_header *next_header = HDRP(NEXT_BLKP(p));
+  if (!ptr_is_mapped(prev_header,ALIGNMENT) || !ptr_is_mapped(next_header,ALIGNMENT))
+    return 0;
+  if ((GET_ALLOC(prev_header) != 1 && GET_ALLOC(prev_header) != 0) || (GET_ALLOC(next_header) != 1 && GET_ALLOC(next_header) != 0))
+    return 0;
+  return (GET_ALLOC(HDRP(p)) && !in_free_list(p));
 }
 
 static void print_free_list()
