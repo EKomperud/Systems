@@ -20,6 +20,25 @@
 #include "mm.h"
 #include "memlib.h"
 
+/* A group within a script: */
+typedef struct block_header 
+{
+	size_t size;					/* size of this block_header's payload + 2 */
+	char allocated;
+} block_header;
+
+typedef struct block_footer
+{
+	size_t size;					/* size of this block_footer's payload + 2 */
+	int filler;
+} block_footer;
+
+typedef struct list_node
+{
+	struct list_node *next;
+	struct list_node *prev;
+} list_node;
+
 /* always use 16-byte alignment */
 #define ALIGNMENT 16
 
@@ -76,25 +95,6 @@ static void print_mapped_pages();
 list_node *free_list = NULL;
 list_node *last_page = NULL;
 size_t lastAllocSize = 0;
-
-/* A group within a script: */
-typedef struct block_header 
-{
-	size_t size;					/* size of this block_header's payload + 2 */
-	char allocated;
-} block_header;
-
-typedef struct block_footer
-{
-	size_t size;					/* size of this block_footer's payload + 2 */
-	int filler;
-} block_footer;
-
-typedef struct list_node
-{
-	struct list_node *next;
-	struct list_node *prev;
-} list_node;
 
 /* 
  * mm_init - initialize the malloc package with 8 pages.
