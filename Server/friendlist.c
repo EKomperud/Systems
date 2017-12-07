@@ -123,8 +123,8 @@ void doit(int fd)
       /* You'll want to handle different queries here,
          but the intial implementation always returns
          nothing: */
-      printf("uri: %s \n", uri);
-      printf("starts with /friends? %d \n", starts_with("/friends",uri));
+      //printf("uri: %s \n", uri);
+      //printf("starts with /friends? %d \n", starts_with("/friends",uri));
       if (starts_with("/sum",uri))
       	serve_sum(fd, query);
       else if (starts_with("/friends",uri))
@@ -454,7 +454,7 @@ static void serve_introduce(int fd, dictionary_t *query)
 {
   printf("serve introduce\n");
   size_t len;
-  char *body, *header, *user, *host, *port, *request, response[MAXLINE];
+  char *body, *header, *user, *host, *port, *request, response[MAXLINE], *status;
   int client;
   rio_t rio;
 
@@ -493,7 +493,26 @@ static void serve_introduce(int fd, dictionary_t *query)
   Rio_writen(client, request, len);               // write the request header to the client file descriptor
 
   Rio_readinitb(&rio, client);
-  Rio_readnb(&rio, response, MAXLINE);
+  if (Rio_readlineb(&rio, response, MAXLINE) <= 0)
+  {
+    printf("didn't receive any response headers from Rio_readlineb");
+    return;
+  }
+  if (!parse_status_line(response, NULL, &status, NULL))
+  {
+    printf("status line didn't parse correctly ]:");
+    return;
+  }
+  else
+  {
+    if (strcasecmp(status, "200"))
+    {
+      printf("status was not OK ]: ; %s",status);
+      return;
+    }
+    
+  }
+  
   
 
   len = strlen(body);
