@@ -24,6 +24,7 @@ static void serve_sum(int fd, dictionary_t *query);
 static void serve_friends(int fd, dictionary_t *query);
 static void serve_befriend(int fd, dictionary_t *query);
 static void serve_unfriend(int fd, dictionary_t *query);
+static void serve_introduce(int fd, dictionary_t *query);
 
 static dictionary_t *users;
 
@@ -122,11 +123,13 @@ void doit(int fd)
       /* You'll want to handle different queries here,
          but the intial implementation always returns
          nothing: */
+      printf("uri: %s \n", uri);
+      printf("starts with /friends? %d \n", starts_with("/friends",uri));
       if (starts_with("/sum",uri))
       	serve_sum(fd, query);
       else if (starts_with("/friends",uri))
       	serve_friends(fd, query);
-      else if (starts_with("/befreind",uri))
+      else if (starts_with("/befriend",uri))
       	serve_befriend(fd, query);
       else if (starts_with("/unfriend",uri))
       	serve_unfriend(fd,query);
@@ -206,6 +209,7 @@ static char *ok_header(size_t len, const char *content_type) {
  */
 static void serve_request(int fd, dictionary_t *query)
 {
+  printf("serve request\n");
   size_t len;
   char *body, *header;
 
@@ -224,7 +228,7 @@ static void serve_request(int fd, dictionary_t *query)
   /* Send response body to client */
   Rio_writen(fd, body, len);
 
-  free(body);
+  //free(body);
 }
 
 /*
@@ -232,6 +236,7 @@ static void serve_request(int fd, dictionary_t *query)
  */
 static void serve_sum(int fd, dictionary_t *query)
 {
+  printf("serve sum\n");
   size_t len;
   char *body, *header, *x, *y, *sum;
 
@@ -261,7 +266,7 @@ static void serve_sum(int fd, dictionary_t *query)
   /* Send response body to client */
   Rio_writen(fd, body, len);
 
-  free(body);
+  //free(body);
 }
 
 /*
@@ -269,6 +274,7 @@ static void serve_sum(int fd, dictionary_t *query)
  */
 static void serve_friends(int fd, dictionary_t *query)
 {
+  printf("serve friends\n");
   size_t len;
   char *body, *header, *user;
 
@@ -290,7 +296,7 @@ static void serve_friends(int fd, dictionary_t *query)
   else
   {
   	dictionary_t *new_friends = make_dictionary(1,free);
-  	dictionary_set(friends, user, new_friends);
+  	dictionary_set(users, user, new_friends);
   	body = "";
   }
   free(friends);
@@ -309,7 +315,7 @@ static void serve_friends(int fd, dictionary_t *query)
   /* Send response body to client */
   Rio_writen(fd, body, len);
 
-  free(body);
+  //free(body);
 }
 
 /*
@@ -317,6 +323,7 @@ static void serve_friends(int fd, dictionary_t *query)
  */
 static void serve_befriend(int fd, dictionary_t *query)
 {
+  printf("serve befreind\n");
   size_t len;
   char *body, *header, *user, *friends;
 
@@ -372,7 +379,7 @@ static void serve_befriend(int fd, dictionary_t *query)
   /* Send response body to client */
   Rio_writen(fd, body, len);
 
-  free(body);
+  //free(body);
 }
 
 /*
@@ -380,6 +387,7 @@ static void serve_befriend(int fd, dictionary_t *query)
  */
 static void serve_unfriend(int fd, dictionary_t *query)
 {
+  printf("serve unfriend\n");
   size_t len;
   char *body, *header, *user, *friends;
 
@@ -436,7 +444,72 @@ static void serve_unfriend(int fd, dictionary_t *query)
   /* Send response body to client */
   Rio_writen(fd, body, len);
 
-  free(body);
+  //free(body);
+}
+
+/*
+ * serve_introduce - introduces a user A to another user B and all of B's friends
+ */
+static void serve_introduce(int fd, dictionary_t *query)
+{
+  printf("serve introduce\n");
+  size_t len;
+  char *body, *header, *user, *host, *port, *request, response[MAXLINE];
+  int client;
+  rio_t rio;
+
+  user = dictionary_get(query, "user");
+  host = dictionary_get(query, "host");
+  port = dictionary_get(query, "port");
+  if (!user || !host || !port)
+  {
+  	clienterror(fd, "?", "400", "Bad Request", "Please provide a user");
+  	return;
+  }
+
+  dictionary_t *friends = (dictionary_t *)dictionary_get(users, user);
+  if (friends == NULL)
+  {
+  	dictionary_t *new_friends = make_dictionary(1,free);
+  	dictionary_set(users, user, new_friends);
+  	friends = (dictionary_t *)dictionary_get(users, user);
+  }
+  //request = append_strings(host,port,"/friends?user=",user);
+  //struct addrinfo hints;
+  //struct addrinfo *addrs;
+  //memset(&hints, 0, sizeof(struct addrinfo));
+  //hints.ai_family = AF_INET;
+  //hints.ai_socktype = 0;
+  //Getaddrinfo(host, port, &hints, &addrs);
+
+  //s = Socket(addrs->ai_family, addrs->ai_socktype, addrs->ai_protocol);
+  //Connect(s, addrs->ai_addr, addrs->ai_addrlen);
+  //Freeaddrinfo(addrs);
+  //struct sockaddr server_addr;
+  //int addrlen = sizeof(sockaddr);
+  request = "GET /friends/ HTTP/1.0\r\n\r\n";     // make the request header
+  len = strlen(request);                          // 
+  client = Open_clientfd(host,port);              // client = the connection file descriptor
+  Rio_writen(client, request, len);               // write the request header to the client file descriptor
+
+  Rio_readinitb(&rio, client);
+  Rio_readnb(&rio, response, MAXLINE);
+  
+
+  len = strlen(body);
+
+  /* send response headers to client */
+  header = ok_header(len, "text/html; charset=utf-8");
+  Rio_writen(fd, header, strlen(header));
+  printf("Response headers:\n");
+  printf("%s", header);
+
+  free(header);
+
+  /* Send response body to client */
+  Rio_writen(fd, body, len);
+
+  //free(body);
 }
 
 /*
