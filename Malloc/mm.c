@@ -1,15 +1,8 @@
 /*
- * mm-naive.c - The least memory-efficient malloc package.
- * 
- * In this naive approach, a block is allocated by allocating a
- * new page as needed.  A block is pure payload. There are no headers or
- * footers.  Blocks are never coalesced or reused.
+ * mm.c
  *
- * The heap check and free check always succeeds, because the
- * allocator doesn't depend on any of the old data.
- *
- * NOTE TO STUDENTS: Replace this header comment with your own header
- * comment that gives a high level description of your solution.
+ * Allocates memory using system calls and organizes it via
+ * an explicit free-list. Coalesces neighboring blocks
  */
 #include <stdio.h>
 #include <stdlib.h>
